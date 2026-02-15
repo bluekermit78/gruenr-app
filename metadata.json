@@ -1,0 +1,7 @@
+{
+  "name": "grünr - Gemeinsam für Lippstädter Grün",
+  "description": "Die offizielle App des Lippstädter Grün e.V. Bürger können neue Baumstandorte vorschlagen, Schäden melden und gemeinsam die Stadtökologie verbessern.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
