@@ -6,11 +6,12 @@ import {
   Info, ChevronRight, Loader2, X, User as UserIcon, LogOut, LogIn, Mail, Calendar, Award, 
   Camera, Trash2, CheckCircle2, MessageSquare, ShieldCheck, ShieldAlert, Users, AlertTriangle, 
   Clock, CheckSquare, MessageCircle, Key, Save, Edit2, Leaf, Building2, Star, ChevronLeft, 
-  MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal 
+  MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal, Lock 
 } from 'lucide-react';
 import { TreeSuggestion, TreeSuggestionStatus, ViewMode, User, UserRole, Comment, DamageReport, DamageReportStatus, Highlight } from './types';
-import { StorageService } from './services/storageService'; 
 import { DataService } from './services/dataService';       
+import { AuthService } from './services/authService'; // NEU
+import { supabase } from './services/supabaseClient'; // NEU
 
 // Leaflet Icons Fix
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -99,24 +100,52 @@ const App: React.FC = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  // Auth State
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+  // Laden der Daten
+  const fetchData = async () => {
+    try {
+      const [u, s, r, h] = await Promise.all([
+        DataService.fetchUsers(),
+        DataService.fetchSuggestions(),
+        DataService.fetchReports(),
+        DataService.fetchHighlights(),
+      ]);
+      setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
+    } catch (e) {
+      console.error("Ladefehler:", e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Initial Load & Auth Listener
   useEffect(() => {
-    const loadAll = async () => {
-      try {
-        const [u, s, r, h, cu] = await Promise.all([
-          DataService.fetchUsers(),
-          DataService.fetchSuggestions(),
-          DataService.fetchReports(),
-          DataService.fetchHighlights(),
-          StorageService.getCurrentUser() 
-        ]);
-        setUsers(u); setSuggestions(s); setReports(r); setHighlights(h); setCurrentUser(cu);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setIsLoading(false);
+    fetchData();
+
+    // Listener für Auth-Änderungen (Login/Logout)
+    const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        // User ist eingeloggt -> hole Benutzerdetails aus unserer 'users' Tabelle
+        const { data: userProfile } = await supabase!.from('users').select('*').eq('id', session.user.id).single();
+        if (userProfile) {
+          setCurrentUser(userProfile as User);
+        }
+        setSyncStatus('cloud');
+      } else {
+        setCurrentUser(null);
       }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
     };
-    loadAll();
   }, []);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -124,19 +153,12 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  useEffect(() => { if (!isLoading) StorageService.saveCurrentUser(currentUser); }, [currentUser, isLoading]);
-
-  const [authEmail, setAuthEmail] = useState('');
-  const [authStep, setAuthStep] = useState<'email' | 'code'>('email');
-  const [authCode, setAuthCode] = useState('');
-  const [isVerifying, setIsVerifying] = useState(false);
-
+  // Admin states
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUserForm, setEditUserForm] = useState<{name: string, email: string, role: UserRole, organization: string}>({name: '', email: '', role: 'user', organization: ''});
   const [modCommentText, setModCommentText] = useState<{ [id: string]: string }>({});
 
   const [isAdding, setIsAdding] = useState<'suggestion' | 'damage' | 'highlight' | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState(false);
   const [newLocation, setNewLocation] = useState<{lat: number, lng: number} | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [formData, setFormData] = useState({ title: '', description: '' });
@@ -166,33 +188,38 @@ const App: React.FC = () => {
   };
 
   const navigateToMap = (id: string, lat: number, lng: number) => { setMapCenter([lat, lng]); setHighlightedId(id); setViewMode('map'); };
-  const handleStartAuth = (e: React.FormEvent) => { e.preventDefault(); if (!authEmail) return; setAuthStep('code'); };
 
-  const handleQuickLogin = (email: string) => {
-    setIsVerifying(true);
-    setTimeout(async () => {
-      let user = users.find(u => u.email === email);
-      if (user) { setCurrentUser(user); setShowAuthModal(false); showNotification(`Willkommen zurück, ${user.name}!`); }
-      setIsVerifying(false); setAuthStep('email'); setAuthEmail('');
-    }, 500);
-  };
-
-  const handleVerifyCode = (e: React.FormEvent) => {
+  // --- NEUE AUTH LOGIK ---
+  const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsVerifying(true);
-    setTimeout(async () => {
-      let user = users.find(u => u.email === authEmail);
-      if (!user) {
-        const newUser: User = { id: Math.random().toString(36).substr(2, 9), name: authEmail.split('@')[0], email: authEmail, role: 'user', joinedAt: Date.now(), isVerified: true };
-        await DataService.saveUser(newUser); 
-        setUsers(prev => [...prev, newUser]);
-        user = newUser;
+    setIsAuthLoading(true);
+    
+    if (authMode === 'register') {
+      const { error } = await AuthService.signUp(authEmail, authPassword, authName);
+      if (error) {
+        showNotification(error.message, 'error');
+      } else {
+        showNotification('Registrierung erfolgreich! Bitte prüfe deine E-Mails.', 'success');
+        setShowAuthModal(false);
       }
-      setCurrentUser(user); setIsVerifying(false); setShowAuthModal(false); setAuthStep('email'); showNotification('Erfolgreich angemeldet!');
-    }, 1000);
+    } else {
+      const { error } = await AuthService.signIn(authEmail, authPassword);
+      if (error) {
+        showNotification('Login fehlgeschlagen. Prüfe deine Daten.', 'error');
+      } else {
+        showNotification('Willkommen zurück!', 'success');
+        setShowAuthModal(false);
+      }
+    }
+    setIsAuthLoading(false);
   };
 
-  const handleLogout = () => { setCurrentUser(null); setViewMode('map'); setIsAdding(null); showNotification('Abgemeldet.'); };
+  const handleLogout = async () => { 
+    await AuthService.signOut(); 
+    setViewMode('map'); 
+    setIsAdding(null); 
+    showNotification('Abgemeldet.');
+  };
 
   const handleEditUser = (user: User) => { setEditingUserId(user.id); setEditUserForm({ name: user.name, email: user.email, role: user.role, organization: user.organization || '' }); };
 
@@ -318,18 +345,55 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden bg-white relative">
-      {notification && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/>}<span className="font-bold text-sm">{notification.message}</span></div>}
+      {notification && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/><span className="font-bold text-sm">{notification.message}</span></div>}
+      
+      {/* AUTH MODAL - NEW DESIGN */}
       {showAuthModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
-            <div className="bg-emerald-900 p-8 text-center text-white relative"><button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 hover:bg-emerald-800 rounded-full p-1"><X /></button><div className="bg-white/10 w-20 h-20 mx-auto rounded-3xl flex items-center justify-center mb-4"><Leaf className="w-12 h-12 text-emerald-400" /></div><h2 className="text-3xl font-bold brand-text">grünr</h2><p className="opacity-80 text-sm mt-2 font-medium">Lippstädter Grün e.V.</p></div>
+            <div className="bg-emerald-900 p-8 text-center text-white relative">
+              <button onClick={() => setShowAuthModal(false)} className="absolute top-4 right-4 hover:bg-emerald-800 rounded-full p-1"><X /></button>
+              <div className="bg-white/10 w-20 h-20 mx-auto rounded-3xl flex items-center justify-center mb-4"><Leaf className="w-12 h-12 text-emerald-400" /></div>
+              <h2 className="text-3xl font-bold brand-text">grünr</h2>
+              <p className="opacity-80 text-sm mt-2 font-medium">Lippstädter Grün e.V.</p>
+            </div>
+            
             <div className="p-8">
-              {isVerifying ? (<div className="flex flex-col items-center py-10 space-y-4"><Loader2 className="w-10 h-10 text-emerald-700 animate-spin" /><p className="text-gray-600 font-medium">Anmeldung erfolgt...</p></div>) : authStep === 'email' ? (<form onSubmit={handleStartAuth} className="space-y-4"><div className="space-y-1"><label className="text-xs font-bold text-gray-500 uppercase tracking-widest">E-Mail Adresse</label><div className="relative"><Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" /><input type="email" required placeholder="Deine E-Mail" className="w-full pl-10 pr-4 py-3 rounded-xl border focus:ring-2 focus:ring-emerald-600 outline-none transition" value={authEmail} onChange={e => setAuthEmail(e.target.value)}/></div></div><button type="submit" className="w-full bg-emerald-700 text-white py-3 rounded-xl font-bold hover:bg-emerald-800 transition shadow-lg flex items-center justify-center gap-2">Code senden <ChevronRight className="w-4 h-4" /></button></form>) : (<form onSubmit={handleVerifyCode} className="space-y-4"><div className="space-y-1"><label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Code</label><input type="text" required placeholder="Code eingeben" className="w-full p-3 rounded-xl border focus:ring-2 focus:ring-emerald-600 outline-none transition text-center tracking-widest font-mono" value={authCode} onChange={e => setAuthCode(e.target.value)}/></div><button type="submit" className="w-full bg-emerald-700 text-white py-3 rounded-xl font-bold">Jetzt anmelden</button></form>)}
-              {!isVerifying && (<div className="mt-8 pt-6 border-t border-gray-100"><p className="text-[10px] font-bold text-gray-400 uppercase mb-4 text-center">Quick-Login (Test)</p><div className="grid grid-cols-3 gap-2"><button onClick={() => handleQuickLogin('alice@lippstaedter-gruen.de')} className="text-[10px] bg-red-50 text-red-700 p-2 rounded-lg font-bold">Admin</button><button onClick={() => handleQuickLogin('marc@lippstaedter-gruen.de')} className="text-[10px] bg-blue-50 text-blue-700 p-2 rounded-lg font-bold">Mod</button><button onClick={() => handleQuickLogin('user@test.de')} className="text-[10px] bg-emerald-50 text-emerald-700 p-2 rounded-lg font-bold">User</button></div></div>)}
+              <div className="flex bg-gray-100 rounded-xl p-1 mb-6">
+                <button onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${authMode === 'login' ? 'bg-white shadow-sm text-emerald-800' : 'text-gray-500 hover:text-gray-700'}`}>Anmelden</button>
+                <button onClick={() => setAuthMode('register')} className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${authMode === 'register' ? 'bg-white shadow-sm text-emerald-800' : 'text-gray-500 hover:text-gray-700'}`}>Registrieren</button>
+              </div>
+
+              <form onSubmit={handleAuthSubmit} className="space-y-4">
+                {authMode === 'register' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Name</label>
+                    <div className="relative"><UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input type="text" required placeholder="Dein Name" className="w-full pl-10 pr-4 py-3 rounded-xl border focus:ring-2 focus:ring-emerald-600 outline-none transition" value={authName} onChange={e => setAuthName(e.target.value)}/></div>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">E-Mail</label>
+                  <div className="relative"><Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input type="email" required placeholder="name@beispiel.de" className="w-full pl-10 pr-4 py-3 rounded-xl border focus:ring-2 focus:ring-emerald-600 outline-none transition" value={authEmail} onChange={e => setAuthEmail(e.target.value)}/></div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Passwort</label>
+                  <div className="relative"><Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input type="password" required placeholder="••••••••" className="w-full pl-10 pr-4 py-3 rounded-xl border focus:ring-2 focus:ring-emerald-600 outline-none transition" value={authPassword} onChange={e => setAuthPassword(e.target.value)}/></div>
+                </div>
+
+                <button disabled={isAuthLoading} type="submit" className="w-full bg-emerald-700 text-white py-3 rounded-xl font-bold hover:bg-emerald-800 transition shadow-lg flex items-center justify-center gap-2">
+                  {isAuthLoading ? <Loader2 className="w-5 h-5 animate-spin"/> : (authMode === 'login' ? 'Einloggen' : 'Konto erstellen')}
+                </button>
+              </form>
+              
+              {authMode === 'register' && <p className="text-xs text-center text-gray-400 mt-4">Wir senden dir einen Bestätigungslink per E-Mail.</p>}
             </div>
           </div>
         </div>
       )}
+
       <header className="bg-emerald-900 text-white p-4 shadow-lg z-50 flex justify-between items-center border-b border-white/10 shrink-0">
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setViewMode('map')}><div className="bg-white/10 p-1.5 rounded-lg"><Leaf className="w-6 h-6 text-emerald-400" /></div><div className="flex flex-col"><h1 className="text-xl font-black brand-text leading-none">grünr</h1><div className="flex items-center gap-1.5"><span className="text-[8px] font-bold tracking-widest opacity-60">Lippstädter Grün e.V.</span><div className="flex items-center gap-0.5 opacity-40 hover:opacity-100 transition cursor-help" title={syncStatus === 'syncing' ? 'Synchronisiere...' : 'Daten in Cloud gespeichert'}>{syncStatus === 'syncing' ? <Loader2 className="w-2 h-2 animate-spin" /> : <CloudCheck className="w-2 h-2" />}</div></div></div></div>
         <div className="flex gap-2 items-center"><button onClick={() => setViewMode('map')} className={`p-2 rounded-xl transition ${viewMode === 'map' ? 'bg-white/20' : 'hover:bg-white/10'}`}><MapIcon className="w-5 h-5" /></button><button onClick={() => setViewMode('list')} className={`p-2 rounded-xl transition ${viewMode === 'list' ? 'bg-white/20' : 'hover:bg-white/10'}`}><ListIcon className="w-5 h-5" /></button><button onClick={() => setViewMode('highlights')} className={`p-2 rounded-xl transition ${viewMode === 'highlights' ? 'bg-white/20' : 'hover:bg-white/10'}`}><Star className="w-5 h-5" /></button><button onClick={() => setViewMode('reports')} className={`p-2 rounded-xl transition ${viewMode === 'reports' ? 'bg-white/20' : 'hover:bg-white/10'}`}><AlertTriangle className="w-5 h-5" /></button><div className="w-px h-6 bg-white/20 mx-1" />{currentUser ? (<button onClick={() => setViewMode('profile')} className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition ${viewMode === 'profile' ? 'bg-white/20' : 'hover:bg-white/10'}`}><div className="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-900 font-bold text-xs uppercase">{currentUser.name.charAt(0)}</div><span className="text-sm font-semibold hidden md:block">{currentUser.name}</span></button>) : (<button onClick={() => setShowAuthModal(true)} className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-400"><LogIn className="w-4 h-4" /> Login</button>)}</div>
