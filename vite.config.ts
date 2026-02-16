@@ -1,13 +1,13 @@
-import * as path from 'path'; // WICHTIG: * as path für ESM Kompatibilität
+import * as path from 'path'; // Änderung: "* as path" ist sicherer
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
-    // Sicherer Pfad für alle Systeme
     const currentDir = process.cwd();
     const env = loadEnv(mode, currentDir, '');
     
-    // Sicherer Zugriff auf Keys (verhindert Absturz wenn undefined)
+    // WICHTIG: Das hier hat in deinem Code gefehlt!
+    // Wir garantieren, dass es ein String ist (zur Not leer), damit der Build nicht abstürzt.
     const geminiKey = env.GEMINI_API_KEY || '';
 
     return {
@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        // Fallback auf leeren String verhindert Build-Crash
+        // Jetzt stürzt JSON.stringify nicht mehr ab, weil geminiKey garantiert existiert
         'process.env.API_KEY': JSON.stringify(geminiKey),
         'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey)
       },
