@@ -3,7 +3,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
-    // FIX: Wir holen uns den Pfad sicher über process.cwd() statt __dirname
+    // FIX: Wir nutzen process.cwd() statt __dirname
     const currentDir = process.cwd();
     const env = loadEnv(mode, currentDir, '');
     
@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
       },
       resolve: {
         alias: {
-          // FIX: Hier nutzen wir jetzt die sichere Variable
+          // FIX: Das hier ist die entscheidende Änderung!
           '@': path.resolve(currentDir, '.'),
         }
       }
