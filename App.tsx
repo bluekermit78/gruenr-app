@@ -232,6 +232,21 @@ const App: React.FC = () => {
     setEditingUserId(null); showNotification('Nutzerdaten aktualisiert.');
   };
 
+  // NEU: Handler zum Löschen eines Users
+  const handleDeleteUser = async (userId: string) => {
+    if (userId === currentUser?.id) {
+      alert("Du kannst dich nicht selbst löschen!");
+      return;
+    }
+    
+    if (confirm(`Möchtest du den Benutzer wirklich unwiderruflich löschen?`)) {
+      await DataService.deleteUser(userId);
+      // Liste lokal aktualisieren
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      showNotification('Benutzer wurde gelöscht.');
+    }
+  };
+
   const handleCancelAdding = () => { setIsAdding(null); setNewLocation(null); setLocationError(null); setFormData({ title: '', description: '' }); setSelectedImages([]); };
 
   const getStatusStyle = (status: string) => {
