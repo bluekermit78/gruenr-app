@@ -9,8 +9,8 @@ import {
   MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal 
 } from 'lucide-react';
 import { TreeSuggestion, TreeSuggestionStatus, ViewMode, User, UserRole, Comment, DamageReport, DamageReportStatus, Highlight } from './types';
-import { StorageService } from './services/storageService'; // Nur für Session
-import { DataService } from './services/dataService';       // Für echte Daten
+import { StorageService } from './services/storageService'; 
+import { DataService } from './services/dataService';       
 
 // Leaflet Icons Fix
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -99,7 +99,6 @@ const App: React.FC = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
-  // Initial Load from Cloud
   useEffect(() => {
     const loadAll = async () => {
       try {
@@ -108,7 +107,7 @@ const App: React.FC = () => {
           DataService.fetchSuggestions(),
           DataService.fetchReports(),
           DataService.fetchHighlights(),
-          StorageService.getCurrentUser() // Session bleibt lokal
+          StorageService.getCurrentUser() 
         ]);
         setUsers(u); setSuggestions(s); setReports(r); setHighlights(h); setCurrentUser(cu);
       } catch (e) {
@@ -125,16 +124,13 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Session Persistenz (Nur lokaler User)
   useEffect(() => { if (!isLoading) StorageService.saveCurrentUser(currentUser); }, [currentUser, isLoading]);
 
-  // Auth state
   const [authEmail, setAuthEmail] = useState('');
   const [authStep, setAuthStep] = useState<'email' | 'code'>('email');
   const [authCode, setAuthCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // Admin states
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUserForm, setEditUserForm] = useState<{name: string, email: string, role: UserRole, organization: string}>({name: '', email: '', role: 'user', organization: ''});
   const [modCommentText, setModCommentText] = useState<{ [id: string]: string }>({});
@@ -188,7 +184,7 @@ const App: React.FC = () => {
       let user = users.find(u => u.email === authEmail);
       if (!user) {
         const newUser: User = { id: Math.random().toString(36).substr(2, 9), name: authEmail.split('@')[0], email: authEmail, role: 'user', joinedAt: Date.now(), isVerified: true };
-        await DataService.saveUser(newUser); // Cloud Save
+        await DataService.saveUser(newUser); 
         setUsers(prev => [...prev, newUser]);
         user = newUser;
       }
@@ -203,7 +199,7 @@ const App: React.FC = () => {
   const handleSaveUserEdit = async () => {
     if (!editingUserId) return;
     const updatedUser = { ...users.find(u => u.id === editingUserId)!, ...editUserForm };
-    await DataService.saveUser(updatedUser); // Cloud
+    await DataService.saveUser(updatedUser); 
     setUsers(prev => prev.map(u => u.id === editingUserId ? updatedUser : u));
     setEditingUserId(null); showNotification('Nutzerdaten aktualisiert.');
   };
@@ -231,14 +227,14 @@ const App: React.FC = () => {
 
   const deleteReport = async (id: string) => {
     if(confirm('Möchtest du diese Meldung wirklich löschen?')) {
-      await DataService.deleteReport(id); // Cloud
+      await DataService.deleteReport(id); 
       setReports(prev => prev.filter(r => r.id !== id)); showNotification('Meldung gelöscht.');
     }
   };
 
   const deleteHighlight = async (id: string) => {
     if(confirm('Highlight löschen?')) {
-      await DataService.deleteHighlight(id); // Cloud
+      await DataService.deleteHighlight(id); 
       setHighlights(prev => prev.filter(h => h.id !== id)); showNotification('Highlight entfernt.');
     }
   };
@@ -246,7 +242,7 @@ const App: React.FC = () => {
   const updateReportStatus = async (id: string, status: DamageReportStatus) => {
     const report = reports.find(r => r.id === id); if(!report) return;
     const updated = { ...report, status };
-    await DataService.updateReport(updated); // Cloud
+    await DataService.updateReport(updated); 
     setReports(prev => prev.map(r => r.id === id ? updated : r)); showNotification(`Status auf "${status}" gesetzt.`);
   };
 
@@ -254,7 +250,7 @@ const App: React.FC = () => {
     const comment = modCommentText[id]; if (!comment) return;
     const report = reports.find(r => r.id === id); if(!report) return;
     const updated = { ...report, moderatorComment: comment, moderatorName: currentUser?.name, moderatorOrg: currentUser?.organization };
-    await DataService.updateReport(updated); // Cloud
+    await DataService.updateReport(updated); 
     setReports(prev => prev.map(r => r.id === id ? updated : r));
     setModCommentText(prev => ({...prev, [id]: ''})); showNotification('Offizielle Antwort gespeichert.');
   };
@@ -267,20 +263,20 @@ const App: React.FC = () => {
     if (type === 'up') { if (nextUp.includes(uid)) nextUp = nextUp.filter(id => id !== uid); else { nextUp.push(uid); nextDown = nextDown.filter(id => id !== uid); } } 
     else { if (nextDown.includes(uid)) nextDown = nextDown.filter(id => id !== uid); else { nextDown.push(uid); nextUp = nextUp.filter(id => id !== uid); } }
     const updated = { ...suggestion, upVotedBy: nextUp, downVotedBy: nextDown, votes: nextUp.length - nextDown.length };
-    await DataService.updateSuggestion(updated); // Cloud
+    await DataService.updateSuggestion(updated); 
     setSuggestions(prev => prev.map(s => s.id === id ? updated : s));
   };
 
   const updateSuggestionStatus = async (id: string, status: TreeSuggestionStatus) => {
     const suggestion = suggestions.find(s => s.id === id); if(!suggestion) return;
     const updated = { ...suggestion, status };
-    await DataService.updateSuggestion(updated); // Cloud
+    await DataService.updateSuggestion(updated); 
     setSuggestions(prev => prev.map(s => s.id === id ? updated : s)); showNotification(`Status geändert zu: ${status}`);
   };
 
   const deleteSuggestion = async (id: string) => {
     if (confirm('Diesen Vorschlag wirklich löschen?')) {
-      await DataService.deleteSuggestion(id); // Cloud
+      await DataService.deleteSuggestion(id); 
       setSuggestions(prev => prev.filter(s => s.id !== id)); showNotification('Vorschlag gelöscht.');
     }
   };
@@ -290,7 +286,7 @@ const App: React.FC = () => {
     const suggestion = suggestions.find(s => s.id === suggestionId); if(!suggestion) return;
     const newComment: Comment = { id: Math.random().toString(36).substr(2, 9), authorId: currentUser.id, authorName: currentUser.name, authorRole: currentUser.role, text: text.trim(), createdAt: Date.now() };
     const updated = { ...suggestion, comments: [...suggestion.comments, newComment] };
-    await DataService.updateSuggestion(updated); // Cloud
+    await DataService.updateSuggestion(updated); 
     setSuggestions(prev => prev.map(s => s.id === suggestionId ? updated : s));
     setCommentText(prev => ({ ...prev, [suggestionId]: '' })); showNotification('Kommentar hinzugefügt.');
   };
@@ -299,15 +295,15 @@ const App: React.FC = () => {
     e.preventDefault(); if (!currentUser || !newLocation || !formData.title || !formData.description || isCompresing) return;
     if (isAdding === 'suggestion') {
       const newEntry: TreeSuggestion = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, votes: 1, upVotedBy: [currentUser.id], downVotedBy: [], comments: [], authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now(), status: 'Vorschlag' };
-      await DataService.addSuggestion(newEntry); // Cloud
+      await DataService.addSuggestion(newEntry); 
       setSuggestions([newEntry, ...suggestions]); setViewMode('list'); showNotification('Vorschlag erfolgreich erstellt!');
     } else if (isAdding === 'damage') {
       const newEntry: DamageReport = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, status: 'Gemeldet', authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now() };
-      await DataService.addReport(newEntry); // Cloud
+      await DataService.addReport(newEntry); 
       setReports([newEntry, ...reports]); setViewMode('reports'); showNotification('Schaden gemeldet. Danke!');
     } else if (isAdding === 'highlight') {
       const newEntry: Highlight = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, authorId: currentUser.id, createdAt: Date.now() };
-      await DataService.addHighlight(newEntry); // Cloud
+      await DataService.addHighlight(newEntry); 
       setHighlights([newEntry, ...highlights]); setViewMode('highlights'); showNotification('Highlight erstellt!');
     }
     setIsAdding(null); setNewLocation(null); setFormData({ title: '', description: '' }); setSelectedImages([]);
@@ -341,24 +337,20 @@ const App: React.FC = () => {
       <main className="flex-1 relative overflow-hidden bg-gray-100">
         {viewMode === 'map' && (
           <div className="w-full h-full relative z-0">
-            {/* @ts-ignore */}
             <MapContainer center={mapCenter} zoom={13} className="h-full w-full z-0" style={{ height: '100%', width: '100%' }}>
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <MapController onCenterChange={setMapCenter} />
               {suggestions.map((s) => (
-                // @ts-ignore
                 <Marker key={s.id} position={[s.lat, s.lng]} icon={getTreeIcon(s.status, highlightedId === s.id)} eventHandlers={{ click: () => setHighlightedId(s.id) }}>
                   <Popup minWidth={240}><div className="p-1">{s.images && s.images[0] && <AppImage src={s.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold text-emerald-900">{s.title}</h3><button onClick={() => setViewMode('list')} className="text-emerald-700 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
               ))}
               {highlights.map((h) => (
-                // @ts-ignore
                 <Marker key={h.id} position={[h.lat, h.lng]} icon={getHighlightIcon(highlightedId === h.id)} eventHandlers={{ click: () => setHighlightedId(h.id) }}>
                   <Popup minWidth={240}><div className="p-1">{h.images && h.images[0] && <AppImage src={h.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold">{h.title}</h3><button onClick={() => setViewMode('highlights')} className="text-amber-600 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
               ))}
               {reports.map((r) => (
-                // @ts-ignore
                 <Marker key={r.id} position={[r.lat, r.lng]} icon={getDamageIcon(r.status, highlightedId === r.id)} eventHandlers={{ click: () => setHighlightedId(r.id) }}>
                   <Popup minWidth={240}><div className="p-1">{r.images && r.images[0] && <AppImage src={r.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold">{r.title}</h3><button onClick={() => setViewMode('reports')} className="text-red-600 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
