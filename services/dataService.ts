@@ -121,4 +121,15 @@ export class DataService {
       if (error) console.error("Error deleting highlight:", error);
     }
   }
+  
+   // NEU: User löschen
+  static async deleteUser(id: string) {
+    if (isBackendConfigured()) {
+      const { error } = await supabase!.from('users').delete().eq('id', id);
+      if (error) {
+        console.error("Error deleting user:", error);
+        alert(`Fehler beim Löschen des Users: ${error.message}`);
+      }
+    }
+  } 
 }
