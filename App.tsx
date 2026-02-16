@@ -9,9 +9,10 @@ import {
   MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal, Lock 
 } from 'lucide-react';
 import { TreeSuggestion, TreeSuggestionStatus, ViewMode, User, UserRole, Comment, DamageReport, DamageReportStatus, Highlight } from './types';
+import { StorageService } from './services/storageService'; 
 import { DataService } from './services/dataService';       
-import { AuthService } from './services/authService'; // NEU
-import { supabase } from './services/supabaseClient'; // NEU
+import { AuthService } from './services/authService'; // Auth Service
+import { supabase } from './services/supabaseClient'; // Supabase Client
 
 // Leaflet Icons Fix
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -345,9 +346,14 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden bg-white relative">
-      {notification && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/><span className="font-bold text-sm">{notification.message}</span></div>}
+      {notification && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>
+          {notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/>}
+          <span className="font-bold text-sm">{notification.message}</span>
+        </div>
+      )}
       
-      {/* AUTH MODAL - NEW DESIGN */}
+      {/* AUTH MODAL */}
       {showAuthModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
@@ -401,20 +407,24 @@ const App: React.FC = () => {
       <main className="flex-1 relative overflow-hidden bg-gray-100">
         {viewMode === 'map' && (
           <div className="w-full h-full relative z-0">
+            {/* @ts-ignore */}
             <MapContainer center={mapCenter} zoom={13} className="h-full w-full z-0" style={{ height: '100%', width: '100%' }}>
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
               <MapController onCenterChange={setMapCenter} />
               {suggestions.map((s) => (
+                // @ts-ignore
                 <Marker key={s.id} position={[s.lat, s.lng]} icon={getTreeIcon(s.status, highlightedId === s.id)} eventHandlers={{ click: () => setHighlightedId(s.id) }}>
                   <Popup minWidth={240}><div className="p-1">{s.images && s.images[0] && <AppImage src={s.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold text-emerald-900">{s.title}</h3><button onClick={() => setViewMode('list')} className="text-emerald-700 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
               ))}
               {highlights.map((h) => (
+                // @ts-ignore
                 <Marker key={h.id} position={[h.lat, h.lng]} icon={getHighlightIcon(highlightedId === h.id)} eventHandlers={{ click: () => setHighlightedId(h.id) }}>
                   <Popup minWidth={240}><div className="p-1">{h.images && h.images[0] && <AppImage src={h.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold">{h.title}</h3><button onClick={() => setViewMode('highlights')} className="text-amber-600 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
               ))}
               {reports.map((r) => (
+                // @ts-ignore
                 <Marker key={r.id} position={[r.lat, r.lng]} icon={getDamageIcon(r.status, highlightedId === r.id)} eventHandlers={{ click: () => setHighlightedId(r.id) }}>
                   <Popup minWidth={240}><div className="p-1">{r.images && r.images[0] && <AppImage src={r.images[0]} className="w-full h-24 object-cover rounded-lg mb-2" />}<h3 className="font-bold">{r.title}</h3><button onClick={() => setViewMode('reports')} className="text-red-600 text-xs font-bold underline">Details</button></div></Popup>
                 </Marker>
