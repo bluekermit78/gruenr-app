@@ -17,6 +17,7 @@ export interface Comment {
   authorId: string;
   authorName: string;
   authorRole: UserRole;
+  authorOrg?: string;
   text: string;
   createdAt: number;
 }
