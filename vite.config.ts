@@ -1,12 +1,15 @@
-import path from 'path';
+import * as path from 'path'; // WICHTIG: * as path für ESM Kompatibilität
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
-    // FIX: Wir nutzen process.cwd() statt __dirname
+    // Sicherer Pfad für alle Systeme
     const currentDir = process.cwd();
     const env = loadEnv(mode, currentDir, '');
     
+    // Sicherer Zugriff auf Keys (verhindert Absturz wenn undefined)
+    const geminiKey = env.GEMINI_API_KEY || '';
+
     return {
       server: {
         port: 3000,
@@ -14,12 +17,12 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        // Fallback auf leeren String verhindert Build-Crash
+        'process.env.API_KEY': JSON.stringify(geminiKey),
+        'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey)
       },
       resolve: {
         alias: {
-          // FIX: Das hier ist die entscheidende Änderung!
           '@': path.resolve(currentDir, '.'),
         }
       }
