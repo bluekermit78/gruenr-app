@@ -318,7 +318,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] w-full overflow-hidden bg-white relative">
-      {notification && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/><span className="font-bold text-sm">{notification.message}</span>}</div>}
+      {notification && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[9999] px-6 py-3 rounded-full shadow-xl flex items-center gap-3 animate-in slide-in-from-top-4 fade-in duration-300 ${notification.type === 'success' ? 'bg-emerald-800 text-white' : 'bg-red-600 text-white'}`}>{notification.type === 'success' ? <CheckCircle2 className="w-5 h-5"/> : <AlertTriangle className="w-5 h-5"/>}<span className="font-bold text-sm">{notification.message}</span></div>}
       {showAuthModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
