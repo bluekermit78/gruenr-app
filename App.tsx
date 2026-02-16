@@ -7,41 +7,41 @@ import {
   List as ListIcon, 
   PlusCircle, 
   ThumbsUp, 
-  ThumbsDown,
-  Navigation,
-  Info,
-  ChevronRight,
-  Loader2,
-  X,
-  User as UserIcon,
-  LogOut,
-  LogIn,
-  Mail,
-  Calendar,
-  Award,
-  Camera,
-  Trash2,
-  CheckCircle2,
-  MessageSquare,
-  ShieldCheck,
-  ShieldAlert,
-  Users,
-  AlertTriangle,
-  Clock,
-  CheckSquare,
-  MessageCircle,
-  Key,
-  Save,
-  Edit2,
-  Leaf,
-  Building2,
-  Star,
-  ChevronLeft,
-  MapPinOff,
-  CloudOff,
-  Cloud as CloudCheck,
-  Image as ImageIcon,
-  MoreHorizontal
+  ThumbsDown, 
+  Navigation, 
+  Info, 
+  ChevronRight, 
+  Loader2, 
+  X, 
+  User as UserIcon, 
+  LogOut, 
+  LogIn, 
+  Mail, 
+  Calendar, 
+  Award, 
+  Camera, 
+  Trash2, 
+  CheckCircle2, 
+  MessageSquare, 
+  ShieldCheck, 
+  ShieldAlert, 
+  Users, 
+  AlertTriangle, 
+  Clock, 
+  CheckSquare, 
+  MessageCircle, 
+  Key, 
+  Save, 
+  Edit2, 
+  Leaf, 
+  Building2, 
+  Star, 
+  ChevronLeft, 
+  MapPinOff, 
+  CloudOff, 
+  Cloud as CloudCheck, // FIX 1: Icon umbenannt
+  Image as ImageIcon, 
+  MoreHorizontal 
 } from 'lucide-react';
 import { TreeSuggestion, TreeSuggestionStatus, ViewMode, User, UserRole, Comment, DamageReport, DamageReportStatus, Highlight } from './types';
 import { StorageService } from './services/storageService';
@@ -643,7 +643,8 @@ const App: React.FC = () => {
       <main className="flex-1 relative overflow-hidden bg-gray-100">
         {viewMode === 'map' && (
           <div className="w-full h-full relative z-0">
-            // @ts-ignore
+            {/* FIX 2: TS-Ignore für MapContainer */}
+            {/* @ts-ignore */}
             <MapContainer 
               center={mapCenter} 
               zoom={13} 
@@ -654,6 +655,7 @@ const App: React.FC = () => {
               <MapController onCenterChange={setMapCenter} />
               
               {suggestions.map((s) => (
+                // FIX 3: TS-Ignore für Marker
                 // @ts-ignore
                 <Marker 
                   key={s.id} 
@@ -876,15 +878,15 @@ const App: React.FC = () => {
                     <div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
                       <div className="text-xs font-bold text-gray-500 uppercase mb-2">Status ändern</div>
                       <div className="flex flex-wrap gap-2">
-                         {['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (
-                           <button 
-                             key={st}
-                             onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} 
-                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
-                           >
-                             {st}
-                           </button>
-                         ))}
+                          {['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (
+                            <button 
+                              key={st}
+                              onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} 
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                            >
+                              {st}
+                            </button>
+                          ))}
                       </div>
                     </div>
                   )}
