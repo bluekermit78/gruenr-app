@@ -478,9 +478,9 @@ const App: React.FC = () => {
 
               {/* NEUER BEREICH: IMPRESSUM & DATENSCHUTZ */}
               <div className="mt-6 flex items-center justify-center gap-4 text-xs text-gray-400">
-                <a href="https://lippstaedter-gruen.de/impressum" className="hover:text-emerald-800 hover:underline transition">Impressum</a>
+                <a href="https://lippstaedter-gruen.de/impressum" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-800 hover:underline transition">Impressum</a>
                 <span className="opacity-50">•</span>
-                <a href="https://lippstaedter-gruen.de/datenschutz" className="hover:text-emerald-800 hover:underline transition">Datenschutz</a>
+                <a href="https://lippstaedter-gruen.de/datenschutz" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-800 hover:underline transition">Datenschutz</a>
               </div>
 
             </div>
