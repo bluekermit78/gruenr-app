@@ -49,7 +49,7 @@ const compressImage = (base64: string, maxWidth = 800, maxHeight = 800): Promise
 };
 
 const formatDate = (timestamp: number) => {
-  return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(timestamp));
+  return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit' }).format(new Date(timestamp));
 };
 
 const AppImage: React.FC<{ src?: string, alt?: string, className?: string }> = ({ src, alt, className }) => {
@@ -108,6 +108,9 @@ const App: React.FC = () => {
   const [authName, setAuthName] = useState('');
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
+  // Edit Comment State
+  const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
+
   // Laden der Daten
   const fetchData = async () => {
     try {
@@ -125,13 +128,10 @@ const App: React.FC = () => {
     }
   };
 
-  // Initial Load & Auth Listener
   useEffect(() => {
     fetchData();
-
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
       if (session) {
-        // User ist eingeloggt -> hole Benutzerdetails aus unserer 'users' Tabelle
         const { data: userProfile } = await supabase!.from('users').select('*').eq('id', session.user.id).single();
         if (userProfile) {
           setCurrentUser(userProfile as User);
@@ -141,7 +141,6 @@ const App: React.FC = () => {
         setCurrentUser(null);
       }
     });
-
     return () => {
       authListener.subscription.unsubscribe();
     };
@@ -152,10 +151,8 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Admin states
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUserForm, setEditUserForm] = useState<{name: string, email: string, role: UserRole, organization: string}>({name: '', email: '', role: 'user', organization: ''});
-  const [modCommentText, setModCommentText] = useState<{ [id: string]: string }>({});
 
   const [isAdding, setIsAdding] = useState<'suggestion' | 'damage' | 'highlight' | null>(null);
   const [newLocation, setNewLocation] = useState<{lat: number, lng: number} | null>(null);
@@ -164,6 +161,8 @@ const App: React.FC = () => {
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [isCompresing, setIsCompressing] = useState(false);
   const [mapCenter, setMapCenter] = useState<[number, number]>(LIPPSTADT_CENTER);
+  
+  // Gemeinsames State für Kommentar-Eingaben (ID kann von Suggestion oder Report sein)
   const [commentText, setCommentText] = useState<{ [id: string]: string }>({});
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -188,36 +187,23 @@ const App: React.FC = () => {
 
   const navigateToMap = (id: string, lat: number, lng: number) => { setMapCenter([lat, lng]); setHighlightedId(id); setViewMode('map'); };
 
-  // --- AUTH LOGIK ---
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAuthLoading(true);
-    
     if (authMode === 'register') {
       const { error } = await AuthService.signUp(authEmail, authPassword, authName);
-      if (error) {
-        showNotification(error.message, 'error');
-      } else {
-        showNotification('Registrierung erfolgreich! Bitte prüfe deine E-Mails.', 'success');
-        setShowAuthModal(false);
-      }
+      if (error) { showNotification(error.message, 'error'); } 
+      else { showNotification('Registrierung erfolgreich! Bitte prüfe deine E-Mails.', 'success'); setShowAuthModal(false); }
     } else {
       const { error } = await AuthService.signIn(authEmail, authPassword);
-      if (error) {
-        showNotification('Login fehlgeschlagen. Prüfe deine Daten.', 'error');
-      } else {
-        showNotification('Willkommen zurück!', 'success');
-        setShowAuthModal(false);
-      }
+      if (error) { showNotification('Login fehlgeschlagen. Prüfe deine Daten.', 'error'); } 
+      else { showNotification('Willkommen zurück!', 'success'); setShowAuthModal(false); }
     }
     setIsAuthLoading(false);
   };
 
   const handleLogout = async () => { 
-    await AuthService.signOut(); 
-    setViewMode('map'); 
-    setIsAdding(null); 
-    showNotification('Abgemeldet.');
+    await AuthService.signOut(); setViewMode('map'); setIsAdding(null); showNotification('Abgemeldet.');
   };
 
   const handleEditUser = (user: User) => { setEditingUserId(user.id); setEditUserForm({ name: user.name, email: user.email, role: user.role, organization: user.organization || '' }); };
@@ -230,16 +216,11 @@ const App: React.FC = () => {
     setEditingUserId(null); showNotification('Nutzerdaten aktualisiert.');
   };
 
-  // --- ADMIN USER DELETE ---
   const handleDeleteUser = async (userId: string) => {
-    if (userId === currentUser?.id) {
-      alert("Du kannst dich nicht selbst löschen!");
-      return;
-    }
+    if (userId === currentUser?.id) { alert("Du kannst dich nicht selbst löschen!"); return; }
     if (confirm(`Möchtest du diesen Benutzer wirklich unwiderruflich löschen?`)) {
       await DataService.deleteUser(userId);
-      setUsers(prev => prev.filter(u => u.id !== userId));
-      showNotification('Benutzer wurde gelöscht.');
+      setUsers(prev => prev.filter(u => u.id !== userId)); showNotification('Benutzer wurde gelöscht.');
     }
   };
 
@@ -266,15 +247,13 @@ const App: React.FC = () => {
 
   const deleteReport = async (id: string) => {
     if(confirm('Möchtest du diese Meldung wirklich löschen?')) {
-      await DataService.deleteReport(id); 
-      setReports(prev => prev.filter(r => r.id !== id)); showNotification('Meldung gelöscht.');
+      await DataService.deleteReport(id); setReports(prev => prev.filter(r => r.id !== id)); showNotification('Meldung gelöscht.');
     }
   };
 
   const deleteHighlight = async (id: string) => {
     if(confirm('Highlight löschen?')) {
-      await DataService.deleteHighlight(id); 
-      setHighlights(prev => prev.filter(h => h.id !== id)); showNotification('Highlight entfernt.');
+      await DataService.deleteHighlight(id); setHighlights(prev => prev.filter(h => h.id !== id)); showNotification('Highlight entfernt.');
     }
   };
 
@@ -283,16 +262,6 @@ const App: React.FC = () => {
     const updated = { ...report, status };
     await DataService.updateReport(updated); 
     setReports(prev => prev.map(r => r.id === id ? updated : r)); showNotification(`Status auf "${status}" gesetzt.`);
-  };
-
-  const saveModeratorComment = async (id: string) => {
-    const comment = modCommentText[id]; if (!comment) return;
-    const report = reports.find(r => r.id === id); if(!report) return;
-    // Hier wird Moderator-Info gespeichert (Org ist Teil des Reports)
-    const updated = { ...report, moderatorComment: comment, moderatorName: currentUser?.name, moderatorOrg: currentUser?.organization };
-    await DataService.updateReport(updated); 
-    setReports(prev => prev.map(r => r.id === id ? updated : r));
-    setModCommentText(prev => ({...prev, [id]: ''})); showNotification('Offizielle Antwort gespeichert.');
   };
 
   const handleVote = async (id: string, type: 'up' | 'down') => {
@@ -321,11 +290,10 @@ const App: React.FC = () => {
     }
   };
 
-  const addComment = async (suggestionId: string) => {
-    const text = commentText[suggestionId]; if (!text?.trim() || !currentUser) return;
-    const suggestion = suggestions.find(s => s.id === suggestionId); if(!suggestion) return;
+  // --- KOMMENTAR LOGIK (GENERIC) ---
+  const addGenericComment = async (parentId: string, type: 'suggestion' | 'report') => {
+    const text = commentText[parentId]; if (!text?.trim() || !currentUser) return;
     
-    // NEU: Organisation wird mitgespeichert
     const newComment: Comment = { 
       id: Math.random().toString(36).substr(2, 9), 
       authorId: currentUser.id, 
@@ -335,11 +303,47 @@ const App: React.FC = () => {
       text: text.trim(), 
       createdAt: Date.now() 
     };
+
+    if (type === 'suggestion') {
+      const parent = suggestions.find(s => s.id === parentId); if(!parent) return;
+      const updated = { ...parent, comments: [...parent.comments, newComment] };
+      await DataService.updateSuggestion(updated);
+      setSuggestions(prev => prev.map(s => s.id === parentId ? updated : s));
+    } else {
+      const parent = reports.find(r => r.id === parentId); if(!parent) return;
+      const updated = { ...parent, comments: [...parent.comments, newComment] };
+      await DataService.updateReport(updated);
+      setReports(prev => prev.map(r => r.id === parentId ? updated : r));
+    }
     
-    const updated = { ...suggestion, comments: [...suggestion.comments, newComment] };
-    await DataService.updateSuggestion(updated); 
-    setSuggestions(prev => prev.map(s => s.id === suggestionId ? updated : s));
-    setCommentText(prev => ({ ...prev, [suggestionId]: '' })); showNotification('Kommentar hinzugefügt.');
+    setCommentText(prev => ({ ...prev, [parentId]: '' })); 
+    showNotification('Kommentar hinzugefügt.');
+  };
+
+  const startEditComment = (comment: Comment, parentId: string, type: 'suggestion' | 'report') => {
+    setEditingComment({ id: comment.id, text: comment.text, parentId, type });
+  };
+
+  const saveEditedComment = async () => {
+    if (!editingComment || !editingComment.text.trim()) return;
+    
+    const { id, text, parentId, type } = editingComment;
+    
+    if (type === 'suggestion') {
+      const parent = suggestions.find(s => s.id === parentId); if(!parent) return;
+      const updatedComments = parent.comments.map(c => c.id === id ? { ...c, text: text, updatedAt: Date.now() } : c);
+      const updated = { ...parent, comments: updatedComments };
+      await DataService.updateSuggestion(updated);
+      setSuggestions(prev => prev.map(s => s.id === parentId ? updated : s));
+    } else {
+      const parent = reports.find(r => r.id === parentId); if(!parent) return;
+      const updatedComments = parent.comments.map(c => c.id === id ? { ...c, text: text, updatedAt: Date.now() } : c);
+      const updated = { ...parent, comments: updatedComments };
+      await DataService.updateReport(updated);
+      setReports(prev => prev.map(r => r.id === parentId ? updated : r));
+    }
+    setEditingComment(null);
+    showNotification('Kommentar aktualisiert.');
   };
 
   const handleSaveEntry = async (e: React.FormEvent) => {
@@ -349,7 +353,7 @@ const App: React.FC = () => {
       await DataService.addSuggestion(newEntry); 
       setSuggestions([newEntry, ...suggestions]); setViewMode('list'); showNotification('Vorschlag erfolgreich erstellt!');
     } else if (isAdding === 'damage') {
-      const newEntry: DamageReport = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, status: 'Gemeldet', authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now() };
+      const newEntry: DamageReport = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, status: 'Gemeldet', authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now(), comments: [] };
       await DataService.addReport(newEntry); 
       setReports([newEntry, ...reports]); setViewMode('reports'); showNotification('Schaden gemeldet. Danke!');
     } else if (isAdding === 'highlight') {
@@ -358,6 +362,59 @@ const App: React.FC = () => {
       setHighlights([newEntry, ...highlights]); setViewMode('highlights'); showNotification('Highlight erstellt!');
     }
     setIsAdding(null); setNewLocation(null); setFormData({ title: '', description: '' }); setSelectedImages([]);
+  };
+
+  // Helper zum Rendern der Kommentare
+  const renderCommentsSection = (comments: Comment[], parentId: string, type: 'suggestion' | 'report') => {
+    return (
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        {comments.length > 0 && (
+          <div className="mb-4 space-y-3">
+            {comments.map(c => (
+              <div key={c.id} className={`p-3 rounded-xl text-sm ${c.authorRole === 'admin' || c.authorRole === 'moderator' ? 'bg-emerald-50 border border-emerald-100' : 'bg-gray-50'}`}>
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`font-bold ${c.authorRole === 'admin' || c.authorRole === 'moderator' ? 'text-emerald-800' : 'text-gray-700'}`}>{c.authorName}</span>
+                    {(c.authorRole === 'admin' || c.authorRole === 'moderator') && (
+                      <span className="text-[10px] uppercase tracking-wider bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded">{c.authorOrg || c.authorRole}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span>{formatDate(c.createdAt)}</span>
+                    {currentUser && currentUser.id === c.authorId && (
+                      <button onClick={() => startEditComment(c, parentId, type)} className="text-gray-400 hover:text-emerald-600">
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {editingComment && editingComment.id === c.id ? (
+                  <div className="flex gap-2 mt-2">
+                    <input autoFocus className="flex-1 p-2 text-sm border rounded-lg" value={editingComment.text} onChange={(e) => setEditingComment({...editingComment, text: e.target.value})} />
+                    <button onClick={saveEditedComment} className="bg-emerald-600 text-white px-3 rounded-lg text-xs font-bold">Save</button>
+                    <button onClick={() => setEditingComment(null)} className="text-gray-400 px-2"><X className="w-4 h-4"/></button>
+                  </div>
+                ) : (
+                  <p className="text-gray-700">{c.text} {c.updatedAt && <span className="text-[10px] text-gray-400 italic">(bearbeitet)</span>}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {currentUser && (
+          <div className="flex gap-2">
+            <input 
+              className="flex-1 p-2 rounded-xl border text-sm outline-none focus:border-emerald-500" 
+              placeholder="Deine Meinung..." 
+              value={commentText[parentId] || ''} 
+              onChange={e => setCommentText({...commentText, [parentId]: e.target.value})} 
+              onKeyDown={e => e.key === 'Enter' && addGenericComment(parentId, type)}
+            />
+            <button onClick={() => addGenericComment(parentId, type)} className="bg-emerald-800 text-white px-4 rounded-xl text-xs font-bold hover:bg-emerald-900">Senden</button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const isModOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
@@ -469,8 +526,18 @@ const App: React.FC = () => {
           </div>
         )}
         {viewMode === 'highlights' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-12 pb-32"><h2 className="text-2xl md:text-4xl font-black text-gray-900 brand-text border-b pb-4">Lippstädter Highlights</h2><div className="grid gap-12">{highlights.map(h => (<div key={h.id} className="bg-white rounded-[2.5rem] shadow-sm border border-amber-50 overflow-hidden flex flex-col md:flex-row gap-8 p-6 md:p-8 relative group">{isModOrAdmin && (<button onClick={() => deleteHighlight(h.id)} className="absolute top-6 right-6 p-2 bg-white/80 rounded-full hover:bg-red-100 hover:text-red-600 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-5 h-5"/></button>)}<div className="w-full md:w-1/2">{h.images?.[0] ? <AppImage src={h.images[0]} className="w-full h-64 object-cover rounded-2xl" /> : <div className="w-full h-64 bg-amber-50 flex items-center justify-center text-amber-200"><Star className="w-20 h-20" /></div>}</div><div className="w-full md:w-1/2 flex flex-col justify-between"><div><h3 className="text-2xl font-bold text-gray-900 mb-4">{h.title}</h3><p className="text-gray-600 leading-relaxed">{h.description}</p></div><div className="flex justify-between items-end mt-8"><span className="text-xs text-gray-400 font-medium">Erstellt am {formatDate(h.createdAt)}</span><button onClick={() => navigateToMap(h.id, h.lat, h.lng)} className="flex items-center gap-2 text-amber-600 font-bold hover:underline">Karte <ChevronRight className="w-4 h-4" /></button></div></div></div>))}</div></div>)}
-        {viewMode === 'reports' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-red-900 brand-text border-b pb-4">Schadensmeldungen</h2>{reports.map(r => (<div key={r.id} className="bg-white rounded-3xl shadow-sm border border-red-100 p-6 space-y-4"><div className="flex justify-between items-start"><div className="flex items-center gap-3"><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(r.status)}`}>{r.status}</span><h3 className="text-xl font-bold">{r.title}</h3></div><div className="flex items-center gap-2"><button onClick={() => navigateToMap(r.id, r.lat, r.lng)} className="text-red-600 font-bold text-sm hover:underline">Karte</button>{isModOrAdmin && (<button onClick={() => deleteReport(r.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>)}</div></div><p className="text-gray-600">{r.description}</p>{r.images?.[0] && <div className="grid grid-cols-2 gap-4"><AppImage src={r.images[0]} className="w-full h-32 object-cover rounded-2xl" /></div>}{r.moderatorComment && (<div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl mt-4"><div className="flex items-center gap-2 mb-1"><ShieldCheck className="w-4 h-4 text-emerald-700"/><span className="text-xs font-bold text-emerald-800 uppercase">{r.moderatorName} {r.moderatorOrg ? `(${r.moderatorOrg})` : ''}</span></div><p className="text-emerald-900 text-sm">{r.moderatorComment}</p></div>)}{isModOrAdmin && (<div className="bg-gray-50 p-4 rounded-xl mt-4 border border-gray-100"><h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Moderation</h4><div className="flex flex-wrap gap-2 mb-4"><button onClick={() => updateReportStatus(r.id, 'Gemeldet')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Gemeldet' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-200'}`}>Offen</button><button onClick={() => updateReportStatus(r.id, 'In Arbeit')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'In Arbeit' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-200'}`}>In Arbeit</button><button onClick={() => updateReportStatus(r.id, 'Erledigt')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Erledigt' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Erledigt</button></div>{!r.moderatorComment && (<div className="flex gap-2"><input className="flex-1 text-sm border rounded-lg px-3 py-2 outline-none focus:border-emerald-500" placeholder="Offizielle Antwort..." value={modCommentText[r.id] || ''} onChange={(e) => setModCommentText({...modCommentText, [r.id]: e.target.value})} /><button onClick={() => saveModeratorComment(r.id)} className="bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold">Senden</button></div>)}</div>)}<div className="text-xs text-gray-400 mt-2">Gemeldet von {r.authorName} am {formatDate(r.createdAt)}</div></div>))}</div>)}
-        {viewMode === 'list' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-emerald-900 brand-text border-b pb-4">Community Vorschläge</h2>{suggestions.map(s => (<div key={s.id} className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-6 flex flex-col md:flex-row gap-6 relative group">{isModOrAdmin && (<button onClick={() => deleteSuggestion(s.id)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 transition"><Trash2 className="w-5 h-5"/></button>)}<div className="flex flex-col items-center justify-center bg-emerald-50 rounded-2xl p-4 min-w-[80px] h-fit"><button onClick={() => handleVote(s.id, 'up')} className={`p-2 rounded-full ${s.upVotedBy.includes(currentUser?.id || '') ? 'text-emerald-700 bg-emerald-200' : 'text-gray-400'}`}><ThumbsUp className="w-6 h-6" /></button><span className="font-bold text-emerald-900 text-lg my-1">{s.votes}</span><button onClick={() => handleVote(s.id, 'down')} className={`p-2 rounded-full ${s.downVotedBy.includes(currentUser?.id || '') ? 'text-red-700 bg-red-100' : 'text-gray-400'}`}><ThumbsDown className="w-6 h-6" /></button></div><div className="flex-1"><div className="flex justify-between pr-8"><div><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(s.status)}`}>{s.status}</span><h3 className="text-xl font-bold mt-2">{s.title}</h3></div><button onClick={() => navigateToMap(s.id, s.lat, s.lng)} className="text-emerald-700 font-bold hover:underline self-start">Karte</button></div><p className="text-gray-600 mt-2">{s.description}</p>{s.images && s.images.length > 0 && (<div className="flex gap-2 mt-3 overflow-x-auto pb-2">{s.images.map((img, i) => (<AppImage key={i} src={img} className="h-20 w-20 object-cover rounded-lg flex-shrink-0" />))}</div>)}{isModOrAdmin && (<div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><div className="text-xs font-bold text-gray-500 uppercase mb-2">Status ändern</div><div className="flex flex-wrap gap-2">{['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (<button key={st} onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{st}</button>))}</div></div>)}<div className="border-t border-gray-100 mt-4 pt-4">{s.comments.length > 0 && <div className="mb-4 space-y-3">{s.comments.map(c => (<div key={c.id} className={`p-3 rounded-xl text-sm ${c.authorRole === 'admin' || c.authorRole === 'moderator' ? 'bg-emerald-50 border border-emerald-100' : 'bg-gray-50'}`}><div className="flex justify-between text-xs text-gray-500 mb-1"><div className="flex items-center gap-2"><span className={`font-bold ${c.authorRole === 'admin' || c.authorRole === 'moderator' ? 'text-emerald-800' : 'text-gray-700'}`}>{c.authorName}</span>{(c.authorRole === 'admin' || c.authorRole === 'moderator') && (<span className="text-[10px] uppercase tracking-wider bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded">{c.authorOrg || c.authorRole}</span>)}</div><span>{formatDate(c.createdAt)}</span></div><p className="text-gray-700">{c.text}</p></div>))}</div>}{currentUser && (<div className="flex gap-2"><input className="flex-1 p-2 rounded-xl border text-sm outline-none focus:border-emerald-500" placeholder="Deine Meinung..." value={commentText[s.id] || ''} onChange={e => setCommentText({...commentText, [s.id]: e.target.value})} onKeyDown={e => e.key === 'Enter' && addComment(s.id)}/><button onClick={() => addComment(s.id)} className="bg-emerald-800 text-white px-4 rounded-xl text-xs font-bold hover:bg-emerald-900">Senden</button></div>)}</div></div></div>))}</div>)}
+        {viewMode === 'reports' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-red-900 brand-text border-b pb-4">Schadensmeldungen</h2>{reports.map(r => (<div key={r.id} className="bg-white rounded-3xl shadow-sm border border-red-100 p-6 space-y-4"><div className="flex justify-between items-start"><div className="flex items-center gap-3"><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(r.status)}`}>{r.status}</span><h3 className="text-xl font-bold">{r.title}</h3></div><div className="flex items-center gap-2"><button onClick={() => navigateToMap(r.id, r.lat, r.lng)} className="text-red-600 font-bold text-sm hover:underline">Karte</button>{isModOrAdmin && (<button onClick={() => deleteReport(r.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>)}</div></div><p className="text-gray-600">{r.description}</p>{r.images?.[0] && <div className="grid grid-cols-2 gap-4"><AppImage src={r.images[0]} className="w-full h-32 object-cover rounded-2xl" /></div>}
+        
+        {/* Render Comments for Report */}
+        {renderCommentsSection(r.comments, r.id, 'report')}
+
+        {isModOrAdmin && (<div className="bg-gray-50 p-4 rounded-xl mt-4 border border-gray-100"><h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Moderation</h4><div className="flex flex-wrap gap-2 mb-4"><button onClick={() => updateReportStatus(r.id, 'Gemeldet')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Gemeldet' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-200'}`}>Offen</button><button onClick={() => updateReportStatus(r.id, 'In Arbeit')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'In Arbeit' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-200'}`}>In Arbeit</button><button onClick={() => updateReportStatus(r.id, 'Erledigt')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Erledigt' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Erledigt</button></div></div>)}<div className="text-xs text-gray-400 mt-2">Gemeldet von {r.authorName} am {formatDate(r.createdAt)}</div></div>))}</div>)}
+        {viewMode === 'list' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-emerald-900 brand-text border-b pb-4">Community Vorschläge</h2>{suggestions.map(s => (<div key={s.id} className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-6 flex flex-col md:flex-row gap-6 relative group">{isModOrAdmin && (<button onClick={() => deleteSuggestion(s.id)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 transition"><Trash2 className="w-5 h-5"/></button>)}<div className="flex flex-col items-center justify-center bg-emerald-50 rounded-2xl p-4 min-w-[80px] h-fit"><button onClick={() => handleVote(s.id, 'up')} className={`p-2 rounded-full ${s.upVotedBy.includes(currentUser?.id || '') ? 'text-emerald-700 bg-emerald-200' : 'text-gray-400'}`}><ThumbsUp className="w-6 h-6" /></button><span className="font-bold text-emerald-900 text-lg my-1">{s.votes}</span><button onClick={() => handleVote(s.id, 'down')} className={`p-2 rounded-full ${s.downVotedBy.includes(currentUser?.id || '') ? 'text-red-700 bg-red-100' : 'text-gray-400'}`}><ThumbsDown className="w-6 h-6" /></button></div><div className="flex-1"><div className="flex justify-between pr-8"><div><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(s.status)}`}>{s.status}</span><h3 className="text-xl font-bold mt-2">{s.title}</h3></div><button onClick={() => navigateToMap(s.id, s.lat, s.lng)} className="text-emerald-700 font-bold hover:underline self-start">Karte</button></div><p className="text-gray-600 mt-2">{s.description}</p>{s.images && s.images.length > 0 && (<div className="flex gap-2 mt-3 overflow-x-auto pb-2">{s.images.map((img, i) => (<AppImage key={i} src={img} className="h-20 w-20 object-cover rounded-lg flex-shrink-0" />))}</div>)}{isModOrAdmin && (<div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><div className="text-xs font-bold text-gray-500 uppercase mb-2">Status ändern</div><div className="flex flex-wrap gap-2">{['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (<button key={st} onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{st}</button>))}</div></div>)}
+        
+        {/* Render Comments for Suggestion */}
+        {renderCommentsSection(s.comments, s.id, 'suggestion')}
+        
+        </div></div>))}</div>)}
         {viewMode === 'profile' && currentUser && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-8 pb-32"><div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-emerald-50"><div className="h-24 bg-emerald-900 flex items-center px-8 text-white relative overflow-hidden"><div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div><h2 className="text-xl font-bold brand-text relative z-10">Dein Profil</h2></div><div className="p-8"><div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6"><div className="flex items-center gap-6"><div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-800 text-4xl font-black shadow-inner">{currentUser.name.charAt(0)}</div><div><h3 className="text-3xl font-bold text-gray-900">{currentUser.name}</h3><div className="flex items-center gap-2 mt-1"><span className={`px-2 py-0.5 rounded-md text-xs font-bold uppercase tracking-widest ${currentUser.role === 'admin' ? 'bg-red-100 text-red-700' : currentUser.role === 'moderator' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{currentUser.role}</span><span className="text-gray-400 text-sm">{currentUser.email}</span></div>{currentUser.organization && <p className="text-sm text-emerald-700 font-medium mt-1"><Building2 className="w-3 h-3 inline mr-1"/> {currentUser.organization}</p>}</div></div><button onClick={handleLogout} className="text-red-600 font-bold px-6 py-3 rounded-2xl border border-red-100 shadow-sm hover:bg-red-50 flex items-center gap-2"><LogOut className="w-4 h-4" /> Abmelden</button></div>{isAdmin && (<div className="mt-12"><h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2"><Users className="w-5 h-5 text-emerald-600"/> Benutzerverwaltung</h3><div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm"><table className="w-full text-left"><thead className="bg-gray-50 text-gray-500 text-xs uppercase font-bold"><tr><th className="p-4">Name</th><th className="p-4">E-Mail</th><th className="p-4">Rolle</th><th className="p-4">Org.</th><th className="p-4">Aktion</th></tr></thead><tbody className="divide-y divide-gray-100">{users.map(u => (<tr key={u.id} className="hover:bg-gray-50 transition"><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" value={editUserForm.name} onChange={e => setEditUserForm({...editUserForm, name: e.target.value})} />) : (<div className="font-bold text-gray-900">{u.name}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" value={editUserForm.email} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} />) : (<div className="text-gray-400 text-xs">{u.email}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<select className="border p-1 rounded" value={editUserForm.role} onChange={e => setEditUserForm({...editUserForm, role: e.target.value as UserRole})}><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select>) : (<span className={`text-xs font-bold uppercase px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-red-50 text-red-600' : u.role === 'moderator' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>)}</td><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" placeholder="-" value={editUserForm.organization} onChange={e => setEditUserForm({...editUserForm, organization: e.target.value})} />) : (<div className="text-gray-600 text-sm">{u.organization || '-'}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<div className="flex gap-2"><button onClick={handleSaveUserEdit} className="text-emerald-600 p-1"><CheckCircle2 className="w-5 h-5"/></button><button onClick={() => setEditingUserId(null)} className="text-red-500 p-1"><X className="w-5 h-5"/></button></div>) : (<div className="flex gap-3"><button onClick={() => handleEditUser(u)} className="text-gray-400 hover:text-emerald-600" title="Bearbeiten"><Edit2 className="w-4 h-4"/></button><button onClick={() => handleDeleteUser(u.id)} className="text-gray-400 hover:text-red-600" title="Benutzer löschen"><Trash2 className="w-4 h-4"/></button></div>)}</td></tr>))}</tbody></table></div></div>)}</div></div></div>)}
       </main>
     </div>
