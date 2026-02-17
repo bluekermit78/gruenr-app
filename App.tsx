@@ -346,22 +346,100 @@ const App: React.FC = () => {
     showNotification('Kommentar aktualisiert.');
   };
 
+  // --- SAVE ENTRY: JETZT MIT STORAGE UPLOAD ---
   const handleSaveEntry = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!currentUser || !newLocation || !formData.title || !formData.description || isCompresing) return;
-    if (isAdding === 'suggestion') {
-      const newEntry: TreeSuggestion = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, votes: 1, upVotedBy: [currentUser.id], downVotedBy: [], comments: [], authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now(), status: 'Vorschlag' };
-      await DataService.addSuggestion(newEntry); 
-      setSuggestions([newEntry, ...suggestions]); setViewMode('list'); showNotification('Vorschlag erfolgreich erstellt!');
-    } else if (isAdding === 'damage') {
-      const newEntry: DamageReport = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, status: 'Gemeldet', authorId: currentUser.id, authorName: currentUser.name, createdAt: Date.now(), comments: [] };
-      await DataService.addReport(newEntry); 
-      setReports([newEntry, ...reports]); setViewMode('reports'); showNotification('Schaden gemeldet. Danke!');
-    } else if (isAdding === 'highlight') {
-      const newEntry: Highlight = { id: Math.random().toString(36).substr(2, 9), lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description, images: selectedImages, authorId: currentUser.id, createdAt: Date.now() };
-      await DataService.addHighlight(newEntry); 
-      setHighlights([newEntry, ...highlights]); setViewMode('highlights'); showNotification('Highlight erstellt!');
+    e.preventDefault();
+    if (!currentUser || !newLocation || !formData.title || !formData.description || isCompresing) return;
+
+    try {
+        // 1. Bilder hochladen (falls vorhanden)
+        const uploadedImageUrls: string[] = [];
+        
+        if (selectedImages.length > 0) {
+            showNotification('Bilder werden hochgeladen...', 'success');
+            
+            for (const imgBase64 of selectedImages) {
+                // Hier wird der neue Storage-Upload genutzt
+                const url = await DataService.uploadImage(imgBase64);
+                if (url) {
+                    uploadedImageUrls.push(url);
+                } else {
+                    console.error("Bild konnte nicht hochgeladen werden.");
+                }
+            }
+        }
+
+        const newId = Math.random().toString(36).substr(2, 9);
+        const timestamp = Date.now();
+
+        if (isAdding === 'suggestion') {
+            const newEntry: TreeSuggestion = {
+                id: newId,
+                lat: newLocation.lat,
+                lng: newLocation.lng,
+                title: formData.title,
+                description: formData.description,
+                images: uploadedImageUrls, // URLs statt Base64
+                votes: 1,
+                upVotedBy: [currentUser.id],
+                downVotedBy: [],
+                comments: [],
+                authorId: currentUser.id,
+                authorName: currentUser.name,
+                createdAt: timestamp,
+                status: 'Vorschlag'
+            };
+            await DataService.addSuggestion(newEntry);
+            setSuggestions([newEntry, ...suggestions]);
+            setViewMode('list');
+            showNotification('Vorschlag erfolgreich erstellt!');
+
+        } else if (isAdding === 'damage') {
+            const newEntry: DamageReport = {
+                id: newId,
+                lat: newLocation.lat,
+                lng: newLocation.lng,
+                title: formData.title,
+                description: formData.description,
+                images: uploadedImageUrls, // URLs statt Base64
+                status: 'Gemeldet',
+                authorId: currentUser.id,
+                authorName: currentUser.name,
+                createdAt: timestamp,
+                comments: []
+            };
+            await DataService.addReport(newEntry);
+            setReports([newEntry, ...reports]);
+            setViewMode('reports');
+            showNotification('Schaden gemeldet. Danke!');
+
+        } else if (isAdding === 'highlight') {
+            const newEntry: Highlight = {
+                id: newId,
+                lat: newLocation.lat,
+                lng: newLocation.lng,
+                title: formData.title,
+                description: formData.description,
+                images: uploadedImageUrls, // URLs statt Base64
+                authorId: currentUser.id,
+                createdAt: timestamp
+            };
+            await DataService.addHighlight(newEntry);
+            setHighlights([newEntry, ...highlights]);
+            setViewMode('highlights');
+            showNotification('Highlight erstellt!');
+        }
+
+        // Reset
+        setIsAdding(null);
+        setNewLocation(null);
+        setFormData({ title: '', description: '' });
+        setSelectedImages([]);
+
+    } catch (error) {
+        console.error("Fehler beim Speichern:", error);
+        showNotification('Fehler beim Speichern des Eintrags.', 'error');
     }
-    setIsAdding(null); setNewLocation(null); setFormData({ title: '', description: '' }); setSelectedImages([]);
   };
 
   // Helper zum Rendern der Kommentare
