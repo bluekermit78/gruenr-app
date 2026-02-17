@@ -9,6 +9,50 @@ export class DataService {
     return data ? JSON.parse(data) : fallback;
   }
 
+  /**
+   * Lädt ein Base64-Bild in den Supabase Storage Bucket 'images' hoch
+   * und gibt die öffentliche URL zurück.
+   */
+  static async uploadImage(base64Data: string): Promise<string | null> {
+    if (!isBackendConfigured()) return null;
+
+    try {
+      // 1. Base64 zu Blob konvertieren (moderne Browser-API)
+      const res = await fetch(base64Data);
+      const blob = await res.blob();
+
+      // 2. Einzigartigen Dateinamen generieren
+      // Ordnerstruktur: uploads/JAHR-MONAT/zufall.jpg hilft bei der Übersicht
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 9);
+      const fileName = `uploads/${timestamp}_${random}.jpg`;
+
+      // 3. Hochladen
+      const { data, error } = await supabase!.storage
+        .from('images') // Muss exakt so heißen wie dein Bucket in Schritt 1
+        .upload(fileName, blob, {
+          contentType: 'image/jpeg',
+          upsert: false
+        });
+
+      if (error) {
+        console.error('Supabase Upload Error:', error);
+        throw error;
+      }
+
+      // 4. Public URL abrufen
+      const { data: publicUrlData } = supabase!.storage
+        .from('images')
+        .getPublicUrl(fileName);
+
+      return publicUrlData.publicUrl;
+
+    } catch (e) {
+      console.error('Fehler beim Bild-Upload:', e);
+      return null;
+    }
+  }
+
   // --- Nutzer ---
   static async fetchUsers(): Promise<User[]> {
     if (isBackendConfigured()) {
@@ -141,4 +185,5 @@ export class DataService {
       }
     }
   } 
+
 }
