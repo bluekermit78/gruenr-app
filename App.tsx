@@ -162,7 +162,7 @@ const App: React.FC = () => {
   const [isCompresing, setIsCompressing] = useState(false);
   const [mapCenter, setMapCenter] = useState<[number, number]>(LIPPSTADT_CENTER);
   
-  // Gemeinsames State für Kommentar-Eingaben (ID kann von Suggestion oder Report sein)
+  // Gemeinsames State für Kommentar-Eingaben
   const [commentText, setCommentText] = useState<{ [id: string]: string }>({});
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -475,6 +475,14 @@ const App: React.FC = () => {
               </form>
               
               {authMode === 'register' && <p className="text-xs text-center text-gray-400 mt-4">Wir senden dir einen Bestätigungslink per E-Mail.</p>}
+
+              {/* NEUER BEREICH: IMPRESSUM & DATENSCHUTZ */}
+              <div className="mt-6 flex items-center justify-center gap-4 text-xs text-gray-400">
+                <a href="#" className="hover:text-emerald-800 hover:underline transition">Impressum</a>
+                <span className="opacity-50">•</span>
+                <a href="#" className="hover:text-emerald-800 hover:underline transition">Datenschutz</a>
+              </div>
+
             </div>
           </div>
         </div>
