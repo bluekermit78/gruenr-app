@@ -29,10 +29,12 @@ export class DataService {
   // --- Vorschläge ---
   static async fetchSuggestions(): Promise<TreeSuggestion[]> {
     if (isBackendConfigured()) {
-      // WICHTIG: Wir holen auch die Kommentare korrekt ab
       const { data, error } = await supabase!.from('suggestions').select('*').order('createdAt', { ascending: false });
       if (error) console.error("Error fetching suggestions:", error);
-      if (data) return data as TreeSuggestion[];
+      if (data) {
+        // Sicherstellen, dass comments existiert
+        return data.map((s: any) => ({ ...s, comments: s.comments || [] })) as TreeSuggestion[];
+      }
     }
     return [];
   }
@@ -42,7 +44,7 @@ export class DataService {
       const { error } = await supabase!.from('suggestions').insert(suggestion);
       if (error) {
         console.error("SUPABASE ERROR (addSuggestion):", error);
-        alert(`Fehler beim Speichern: ${error.message}\nDetails siehe Konsole.`);
+        alert(`Fehler beim Speichern: ${error.message}`);
       }
     }
   }
@@ -66,14 +68,22 @@ export class DataService {
     if (isBackendConfigured()) {
       const { data, error } = await supabase!.from('reports').select('*').order('createdAt', { ascending: false });
       if (error) console.error("Error fetching reports:", error);
-      if (data) return data as DamageReport[];
+      if (data) {
+        // Migration: Falls noch alte Felder da sind oder comments null ist
+        return data.map((r: any) => ({
+          ...r,
+          comments: r.comments || [] 
+        })) as DamageReport[];
+      }
     }
     return [];
   }
 
   static async addReport(report: DamageReport) {
     if (isBackendConfigured()) {
-      const { error } = await supabase!.from('reports').insert(report);
+      // Sicherstellen, dass ein leeres Array gesendet wird
+      const reportToSave = { ...report, comments: report.comments || [] };
+      const { error } = await supabase!.from('reports').insert(reportToSave);
       if (error) {
         console.error("SUPABASE ERROR (addReport):", error);
         alert(`Fehler beim Speichern: ${error.message}`);
@@ -122,7 +132,6 @@ export class DataService {
     }
   }
   
-   // NEU: User löschen
   static async deleteUser(id: string) {
     if (isBackendConfigured()) {
       const { error } = await supabase!.from('users').delete().eq('id', id);
