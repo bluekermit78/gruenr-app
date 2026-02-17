@@ -1,4 +1,3 @@
-
 export type UserRole = 'admin' | 'moderator' | 'user';
 
 export interface User {
@@ -20,6 +19,7 @@ export interface Comment {
   authorOrg?: string;
   text: string;
   createdAt: number;
+  updatedAt?: number; // Neu: Um Änderungen anzuzeigen
 }
 
 export type TreeSuggestionStatus = 'Vorschlag' | 'Akzeptiert' | 'In Arbeit' | 'Gepflanzt' | 'Abgelehnt';
@@ -31,7 +31,7 @@ export interface TreeSuggestion {
   title: string;
   description: string;
   images?: string[];
-  votes: number; // Net score: upvotes - downvotes
+  votes: number;
   upVotedBy: string[];
   downVotedBy: string[];
   comments: Comment[];
@@ -65,9 +65,7 @@ export interface DamageReport {
   authorId: string;
   authorName: string;
   createdAt: number;
-  moderatorComment?: string;
-  moderatorName?: string;
-  moderatorOrg?: string;
+  comments: Comment[]; // Neu: Mehrere Kommentare analog zu Vorschlägen
 }
 
 export type ViewMode = 'map' | 'list' | 'profile' | 'reports' | 'highlights';
