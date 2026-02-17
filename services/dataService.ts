@@ -4,9 +4,42 @@ import { supabase, isBackendConfigured } from './supabaseClient';
 export class DataService {
   private static CACHE_PREFIX = 'grunr_cache_';
 
-  private static getLocal<T>(key: string, fallback: T): T {
-    const data = localStorage.getItem(this.CACHE_PREFIX + key);
-    return data ? JSON.parse(data) : fallback;
+  // --- HILFSMETHODE: BILDER LÖSCHEN ---
+  /**
+   * Nimmt eine Liste von öffentlichen URLs, extrahiert den Pfad
+   * und löscht die Dateien aus dem Supabase Storage Bucket 'images'.
+   */
+  private static async deleteImagesFromStorage(imageUrls: string[] | undefined) {
+    if (!imageUrls || imageUrls.length === 0 || !isBackendConfigured()) return;
+
+    try {
+      const pathsToDelete: string[] = [];
+
+      imageUrls.forEach(url => {
+        // Wir müssen den Pfad extrahieren. 
+        // URL Format ist z.B.: .../storage/v1/object/public/images/uploads/123.jpg
+        // Wir brauchen: uploads/123.jpg
+        const bucketMatch = url.split('/images/');
+        if (bucketMatch.length > 1) {
+          // Nimmt den Teil nach 'images/'
+          pathsToDelete.push(bucketMatch[1]);
+        }
+      });
+
+      if (pathsToDelete.length > 0) {
+        const { error } = await supabase!.storage
+          .from('images')
+          .remove(pathsToDelete);
+        
+        if (error) {
+          console.error("Fehler beim Löschen der Bilder aus Storage:", error);
+        } else {
+          console.log(`${pathsToDelete.length} Bilder erfolgreich aus Storage gelöscht.`);
+        }
+      }
+    } catch (e) {
+      console.error("Exception beim Bildlöschen:", e);
+    }
   }
 
   /**
@@ -17,36 +50,23 @@ export class DataService {
     if (!isBackendConfigured()) return null;
 
     try {
-      // 1. Base64 zu Blob konvertieren (moderne Browser-API)
       const res = await fetch(base64Data);
       const blob = await res.blob();
-
-      // 2. Einzigartigen Dateinamen generieren
-      // Ordnerstruktur: uploads/JAHR-MONAT/zufall.jpg hilft bei der Übersicht
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 9);
       const fileName = `uploads/${timestamp}_${random}.jpg`;
 
-      // 3. Hochladen
-      const { data, error } = await supabase!.storage
-        .from('images') // Muss exakt so heißen wie dein Bucket in Schritt 1
-        .upload(fileName, blob, {
-          contentType: 'image/jpeg',
-          upsert: false
-        });
+      const { error } = await supabase!.storage
+        .from('images')
+        .upload(fileName, blob, { contentType: 'image/jpeg', upsert: false });
 
-      if (error) {
-        console.error('Supabase Upload Error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // 4. Public URL abrufen
       const { data: publicUrlData } = supabase!.storage
         .from('images')
         .getPublicUrl(fileName);
 
       return publicUrlData.publicUrl;
-
     } catch (e) {
       console.error('Fehler beim Bild-Upload:', e);
       return null;
@@ -70,15 +90,22 @@ export class DataService {
     }
   }
 
+  static async deleteUser(id: string) {
+    if (isBackendConfigured()) {
+      const { error } = await supabase!.from('users').delete().eq('id', id);
+      if (error) {
+        console.error("Error deleting user:", error);
+        alert(`Fehler beim Löschen des Users: ${error.message}`);
+      }
+    }
+  }
+
   // --- Vorschläge ---
   static async fetchSuggestions(): Promise<TreeSuggestion[]> {
     if (isBackendConfigured()) {
       const { data, error } = await supabase!.from('suggestions').select('*').order('createdAt', { ascending: false });
       if (error) console.error("Error fetching suggestions:", error);
-      if (data) {
-        // Sicherstellen, dass comments existiert
-        return data.map((s: any) => ({ ...s, comments: s.comments || [] })) as TreeSuggestion[];
-      }
+      if (data) return data.map((s: any) => ({ ...s, comments: s.comments || [] })) as TreeSuggestion[];
     }
     return [];
   }
@@ -102,6 +129,15 @@ export class DataService {
 
   static async deleteSuggestion(id: string) {
     if (isBackendConfigured()) {
+      // 1. Hole den Eintrag erst, um die Bilder-URLs zu bekommen
+      const { data } = await supabase!.from('suggestions').select('images').eq('id', id).single();
+      
+      // 2. Bilder aus Storage löschen
+      if (data && data.images) {
+        await this.deleteImagesFromStorage(data.images);
+      }
+
+      // 3. Datenbank-Eintrag löschen
       const { error } = await supabase!.from('suggestions').delete().eq('id', id);
       if (error) console.error("Error deleting suggestion:", error);
     }
@@ -112,20 +148,13 @@ export class DataService {
     if (isBackendConfigured()) {
       const { data, error } = await supabase!.from('reports').select('*').order('createdAt', { ascending: false });
       if (error) console.error("Error fetching reports:", error);
-      if (data) {
-        // Migration: Falls noch alte Felder da sind oder comments null ist
-        return data.map((r: any) => ({
-          ...r,
-          comments: r.comments || [] 
-        })) as DamageReport[];
-      }
+      if (data) return data.map((r: any) => ({ ...r, comments: r.comments || [] })) as DamageReport[];
     }
     return [];
   }
 
   static async addReport(report: DamageReport) {
     if (isBackendConfigured()) {
-      // Sicherstellen, dass ein leeres Array gesendet wird
       const reportToSave = { ...report, comments: report.comments || [] };
       const { error } = await supabase!.from('reports').insert(reportToSave);
       if (error) {
@@ -144,6 +173,15 @@ export class DataService {
 
   static async deleteReport(id: string) {
     if (isBackendConfigured()) {
+      // 1. Bilder holen
+      const { data } = await supabase!.from('reports').select('images').eq('id', id).single();
+      
+      // 2. Bilder löschen
+      if (data && data.images) {
+        await this.deleteImagesFromStorage(data.images);
+      }
+
+      // 3. Eintrag löschen
       const { error } = await supabase!.from('reports').delete().eq('id', id);
       if (error) console.error("Error deleting report:", error);
     }
@@ -171,19 +209,17 @@ export class DataService {
 
   static async deleteHighlight(id: string) {
     if (isBackendConfigured()) {
+      // 1. Bilder holen
+      const { data } = await supabase!.from('highlights').select('images').eq('id', id).single();
+      
+      // 2. Bilder löschen
+      if (data && data.images) {
+        await this.deleteImagesFromStorage(data.images);
+      }
+
+      // 3. Eintrag löschen
       const { error } = await supabase!.from('highlights').delete().eq('id', id);
       if (error) console.error("Error deleting highlight:", error);
     }
   }
-  
-  static async deleteUser(id: string) {
-    if (isBackendConfigured()) {
-      const { error } = await supabase!.from('users').delete().eq('id', id);
-      if (error) {
-        console.error("Error deleting user:", error);
-        alert(`Fehler beim Löschen des Users: ${error.message}`);
-      }
-    }
-  } 
-
 }
