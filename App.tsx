@@ -95,7 +95,7 @@ const App: React.FC = () => {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [showResetButton, setShowResetButton] = useState(false); // NEU: State für Reset-Button
+  const [showResetButton, setShowResetButton] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'cloud'>('cloud');
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -112,49 +112,38 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-  // --- FETCH LOGIK MIT TIMEOUT & ZOMBIE KILLER ---
+  // --- STABILISIERTE FETCH LOGIK ---
   const fetchData = async () => {
-    // Timer für 5 Sekunden (als Fallback für fetchData)
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout")), 5000)
-    );
-
-    const dataPromise = Promise.all([
-      DataService.fetchUsers(),
-      DataService.fetchSuggestions(),
-      DataService.fetchReports(),
-      DataService.fetchHighlights(),
-    ]);
-
     try {
-      // Wir warten entweder auf Daten ODER auf den 5s Timer
-      const result = await Promise.race([dataPromise, timeoutPromise]);
-      const [u, s, r, h] = result as [User[], TreeSuggestion[], DamageReport[], Highlight[]];
+      // Wir holen die Daten einfach, ohne künstlichen Stress.
+      // Falls der Server langsam ist, wartet die App eben kurz.
+      // Das ist besser als ein Absturz.
+      
+      const [u, s, r, h] = await Promise.all([
+        DataService.fetchUsers(),
+        DataService.fetchSuggestions(),
+        DataService.fetchReports(),
+        DataService.fetchHighlights(),
+      ]);
+
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
 
     } catch (e) {
-      console.error("Laden abgebrochen (Timeout/Zombie-Session):", e);
-      showNotification('Verbindungsproblem. App wurde zurückgesetzt.', 'error');
-      
-      // FIREFOX FIX: Sofort aufräumen
-      localStorage.clear();
-      setCurrentUser(null);
-      // Logout Versuch ohne await, damit wir nicht hängen bleiben
-      supabase?.auth.signOut().catch(err => console.warn("Hintergrund-Logout fehlgeschlagen:", err));
-      
+      console.error("Fehler beim Laden:", e);
+      showNotification('Verbindungsproblem. Bitte "Neustarten" drücken falls nichts passiert.', 'error');
+      // KEIN automatisches Logout mehr hier!
     } finally {
-      // Ladebildschirm auf jeden Fall entfernen
       setIsLoading(false);
     }
   };
 
-  // Sicherheitstimer für UI: Button anzeigen nach 3 Sekunden
+  // Sicherheitstimer: Button anzeigen nach 5 Sekunden
   useEffect(() => {
     const timer = setTimeout(() => {
       if (isLoading) {
         setShowResetButton(true);
       }
-    }, 3000);
+    }, 5000); // 5 Sekunden warten bevor wir den User nerven
 
     return () => clearTimeout(timer);
   }, [isLoading]);
@@ -174,6 +163,7 @@ const App: React.FC = () => {
     fetchData();
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
       if (session) {
+        // Wenn Session da ist, User Daten holen
         const { data: userProfile } = await supabase!.from('users').select('*').eq('id', session.user.id).single();
         if (userProfile) {
           setCurrentUser(userProfile as User);
