@@ -112,71 +112,94 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-  // --- STABILISIERTE FETCH LOGIK ---
-  const fetchData = async () => {
+  // --- NEUER ROBUSTER INITIALISIERUNGS-PROZESS ---
+  
+  const initializeApp = async () => {
+    setIsLoading(true);
+    
+    // 1. AUTH CHECK: Wir geben Supabase max 2 Sekunden Zeit, den User zu finden.
+    // Wenn es länger dauert, ist die Session wahrscheinlich "Zombie" und wir machen als Gast weiter.
+    const authTimeout = new Promise((_, reject) => setTimeout(() => reject("AuthTimeout"), 2000));
+    
     try {
-      // Wir holen die Daten einfach, ohne künstlichen Stress.
-      // Falls der Server langsam ist, wartet die App eben kurz.
-      // Das ist besser als ein Absturz.
-      
+      // Race: Was passiert zuerst? Session gefunden oder 2s vorbei?
+      const { data } = await Promise.race([
+        supabase!.auth.getSession(),
+        authTimeout
+      ]) as any;
+
+      if (data?.session?.user) {
+        // User gefunden -> Profil laden
+        const { data: userProfile } = await supabase!.from('users').select('*').eq('id', data.session.user.id).single();
+        if (userProfile) setCurrentUser(userProfile as User);
+      }
+    } catch (error) {
+      console.warn("Auth Check Timeout oder Fehler - Lade als Gast:", error);
+      // Wir loggen NICHT automatisch aus, um keine Endlosschleifen zu erzeugen,
+      // aber wir ignorieren die hängende Session und laden die Daten.
+    }
+
+    // 2. DATEN LADEN: Egal ob User oder Gast, jetzt holen wir die Daten.
+    try {
       const [u, s, r, h] = await Promise.all([
         DataService.fetchUsers(),
         DataService.fetchSuggestions(),
         DataService.fetchReports(),
         DataService.fetchHighlights(),
       ]);
-
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
-
     } catch (e) {
-      console.error("Fehler beim Laden:", e);
-      showNotification('Verbindungsproblem. Bitte "Neustarten" drücken falls nichts passiert.', 'error');
-      // KEIN automatisches Logout mehr hier!
+      console.error("Daten konnten nicht vollständig geladen werden:", e);
+      showNotification('Einige Daten konnten nicht geladen werden.', 'error');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Sicherheitstimer: Button anzeigen nach 5 Sekunden
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (isLoading) {
-        setShowResetButton(true);
-      }
-    }, 5000); // 5 Sekunden warten bevor wir den User nerven
+  // Manueller Reset (Der "Rote Button")
+  const handleManualReset = () => {
+    // 1. Zwingend alles lokal löschen
+    localStorage.clear();
+    sessionStorage.clear(); // Auch Session Storage sicherheitshalber
+    
+    // 2. Wir warten NICHT auf Supabase. Wir feuern den Logout ab ("Fire and Forget")
+    // Falls der Server hängt, blockiert uns das nicht.
+    supabase?.auth.signOut().catch(err => console.error("SignOut Error (ignored):", err));
 
-    return () => clearTimeout(timer);
-  }, [isLoading]);
-
-  const handleManualReset = async () => {
-    try {
-      localStorage.clear();
-      await supabase?.auth.signOut();
-    } catch (e) {
-      console.error("Reset Error", e);
-    } finally {
-      window.location.reload();
-    }
+    // 3. Seite neu laden
+    window.location.reload();
   };
 
+  // Initialer Start
   useEffect(() => {
-    fetchData();
+    initializeApp();
+
+    // Event Listener für Auth Änderungen (Login/Logout zur Laufzeit)
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        // Wenn Session da ist, User Daten holen
+      if (event === 'SIGNED_IN' && session) {
         const { data: userProfile } = await supabase!.from('users').select('*').eq('id', session.user.id).single();
-        if (userProfile) {
-          setCurrentUser(userProfile as User);
-        }
-        setSyncStatus('cloud');
-      } else {
+        if (userProfile) setCurrentUser(userProfile as User);
+      } else if (event === 'SIGNED_OUT') {
         setCurrentUser(null);
       }
     });
+
     return () => {
       authListener.subscription.unsubscribe();
     };
   }, []);
+
+  // Timer für den "Notfall-Button"
+  useEffect(() => {
+    let timer: any;
+    if (isLoading) {
+      timer = setTimeout(() => {
+        setShowResetButton(true);
+      }, 4000); // Button erscheint nach 4 Sekunden
+    }
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
     setNotification({ message, type });
@@ -235,7 +258,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => { 
-    await AuthService.signOut(); setViewMode('map'); setIsAdding(null); showNotification('Abgemeldet.');
+    await AuthService.signOut(); 
+    setCurrentUser(null);
+    setViewMode('map'); 
+    setIsAdding(null); 
+    showNotification('Abgemeldet.');
   };
 
   const handleEditUser = (user: User) => { setEditingUserId(user.id); setEditUserForm({ name: user.name, email: user.email, role: user.role, organization: user.organization || '' }); };
@@ -411,7 +438,7 @@ const App: React.FC = () => {
                 lng: newLocation.lng,
                 title: formData.title,
                 description: formData.description,
-                images: uploadedImageUrls, // URLs statt Base64
+                images: uploadedImageUrls, 
                 votes: 1,
                 upVotedBy: [currentUser.id],
                 downVotedBy: [],
@@ -433,7 +460,7 @@ const App: React.FC = () => {
                 lng: newLocation.lng,
                 title: formData.title,
                 description: formData.description,
-                images: uploadedImageUrls, // URLs statt Base64
+                images: uploadedImageUrls,
                 status: 'Gemeldet',
                 authorId: currentUser.id,
                 authorName: currentUser.name,
@@ -452,7 +479,7 @@ const App: React.FC = () => {
                 lng: newLocation.lng,
                 title: formData.title,
                 description: formData.description,
-                images: uploadedImageUrls, // URLs statt Base64
+                images: uploadedImageUrls,
                 authorId: currentUser.id,
                 createdAt: timestamp
             };
