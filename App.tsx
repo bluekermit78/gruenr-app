@@ -111,19 +111,38 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-  // Laden der Daten
+  // --- NEUE FETCH LOGIK MIT TIMEOUT ---
   const fetchData = async () => {
+    // Ein "Timer", der nach 5 Sekunden "Alarm" schlägt (reject)
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout")), 5000)
+    );
+
+    // Die eigentliche Datenabfrage
+    const dataPromise = Promise.all([
+      DataService.fetchUsers(),
+      DataService.fetchSuggestions(),
+      DataService.fetchReports(),
+      DataService.fetchHighlights(),
+    ]);
+
     try {
-      const [u, s, r, h] = await Promise.all([
-        DataService.fetchUsers(),
-        DataService.fetchSuggestions(),
-        DataService.fetchReports(),
-        DataService.fetchHighlights(),
-      ]);
+      // Promise.race nimmt das Ergebnis, das ZUERST fertig ist.
+      // Entweder die Daten kommen schnell (< 5s) -> Success
+      // Oder der Timer läuft ab (5s) -> Error/Catch
+      const result = await Promise.race([dataPromise, timeoutPromise]);
+      
+      // Wenn wir hier sind, waren die Daten schneller als der Timer
+      const [u, s, r, h] = result as [User[], TreeSuggestion[], DamageReport[], Highlight[]];
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
+
     } catch (e) {
-      console.error("Ladefehler:", e);
+      console.error("Laden abgebrochen (Timeout oder Fehler):", e);
+      // Im Fehlerfall (oder bei Timeout) beenden wir das Laden trotzdem,
+      // damit der Nutzer nicht vor einem weißen Bildschirm sitzt.
+      showNotification('Verbindung langsam - Daten evtl. unvollständig.', 'error');
     } finally {
+      // Egal was passiert: Ladebildschirm wegnehmen!
       setIsLoading(false);
     }
   };
