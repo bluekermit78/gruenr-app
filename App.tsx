@@ -6,7 +6,7 @@ import {
   Info, ChevronRight, Loader2, X, User as UserIcon, LogOut, LogIn, Mail, Calendar, Award, 
   Camera, Trash2, CheckCircle2, MessageSquare, ShieldCheck, ShieldAlert, Users, AlertTriangle, 
   Clock, CheckSquare, MessageCircle, Key, Save, Edit2, Leaf, Building2, Star, ChevronLeft, 
-  MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal, Lock 
+  MapPinOff, CloudOff, Cloud as CloudCheck, Image as ImageIcon, MoreHorizontal, Lock, RefreshCw 
 } from 'lucide-react';
 import { TreeSuggestion, TreeSuggestionStatus, ViewMode, User, UserRole, Comment, DamageReport, DamageReportStatus, Highlight } from './types';
 import { DataService } from './services/dataService';       
@@ -95,6 +95,7 @@ const App: React.FC = () => {
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   
   const [isLoading, setIsLoading] = useState(true);
+  const [showResetButton, setShowResetButton] = useState(false); // NEU: State für Reset-Button
   const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'cloud'>('cloud');
   const [viewMode, setViewMode] = useState<ViewMode>('map');
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -111,16 +112,9 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-// --- FETCH LOGIK MIT "ZOMBIE KILLER" ---
+  // --- FETCH LOGIK MIT TIMEOUT & ZOMBIE KILLER ---
   const fetchData = async () => {
-    // Timer für 5 Sekunden
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Timeout")), 5000)
-    );
-
-// --- FETCH LOGIK MIT "BRUTALEM ZOMBIE KILLER" ---
-  const fetchData = async () => {
-    // Timer für 5 Sekunden
+    // Timer für 5 Sekunden (als Fallback für fetchData)
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error("Timeout")), 5000)
     );
@@ -133,6 +127,7 @@ const App: React.FC = () => {
     ]);
 
     try {
+      // Wir warten entweder auf Daten ODER auf den 5s Timer
       const result = await Promise.race([dataPromise, timeoutPromise]);
       const [u, s, r, h] = result as [User[], TreeSuggestion[], DamageReport[], Highlight[]];
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
@@ -141,22 +136,40 @@ const App: React.FC = () => {
       console.error("Laden abgebrochen (Timeout/Zombie-Session):", e);
       showNotification('Verbindungsproblem. App wurde zurückgesetzt.', 'error');
       
-      // --- HIER IST DER FIX FÜR FIREFOX ---
-      // 1. Wir löschen SOFORT den lokalen Speicher. Nicht warten.
+      // FIREFOX FIX: Sofort aufräumen
       localStorage.clear();
-      
-      // 2. Wir setzen den User im State auf null.
       setCurrentUser(null);
-
-      // 3. Wir versuchen im Hintergrund, Supabase abzumelden, warten aber NICHT darauf.
-      // Das verhindert, dass die App hängen bleibt, wenn der Server nicht antwortet.
+      // Logout Versuch ohne await, damit wir nicht hängen bleiben
       supabase?.auth.signOut().catch(err => console.warn("Hintergrund-Logout fehlgeschlagen:", err));
       
     } finally {
-      // 4. Ladebildschirm SOFORT entfernen, egal was passiert ist.
+      // Ladebildschirm auf jeden Fall entfernen
       setIsLoading(false);
     }
   };
+
+  // Sicherheitstimer für UI: Button anzeigen nach 3 Sekunden
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isLoading) {
+        setShowResetButton(true);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
+  const handleManualReset = async () => {
+    try {
+      localStorage.clear();
+      await supabase?.auth.signOut();
+    } catch (e) {
+      console.error("Reset Error", e);
+    } finally {
+      window.location.reload();
+    }
+  };
+
   useEffect(() => {
     fetchData();
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
@@ -375,7 +388,7 @@ const App: React.FC = () => {
     showNotification('Kommentar aktualisiert.');
   };
 
-  // --- SAVE ENTRY: JETZT MIT STORAGE UPLOAD ---
+  // --- SAVE ENTRY: MIT SUPABASE STORAGE UPLOAD ---
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !newLocation || !formData.title || !formData.description || isCompresing) return;
@@ -388,7 +401,7 @@ const App: React.FC = () => {
             showNotification('Bilder werden hochgeladen...', 'success');
             
             for (const imgBase64 of selectedImages) {
-                // Hier wird der neue Storage-Upload genutzt
+                // Upload via DataService
                 const url = await DataService.uploadImage(imgBase64);
                 if (url) {
                     uploadedImageUrls.push(url);
@@ -527,8 +540,28 @@ const App: React.FC = () => {
   const isModOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const isAdmin = currentUser?.role === 'admin';
 
+  // LADEBILDSCHIRM MIT NOTFALL-RESET-BUTTON
   if (isLoading) {
-    return <div className="h-screen w-full flex flex-col items-center justify-center bg-emerald-900 text-white"><Loader2 className="w-12 h-12 animate-spin text-emerald-400 mb-4" /><p className="font-bold text-lg animate-pulse">grünr wird geladen...</p></div>;
+    return (
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-emerald-900 text-white p-4 relative">
+        <Loader2 className="w-12 h-12 animate-spin text-emerald-400 mb-4" />
+        <p className="font-bold text-lg animate-pulse mb-8">grünr wird geladen...</p>
+        
+        {/* Der Notfall-Button für Firefox & Hänger */}
+        {showResetButton && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col items-center gap-2">
+            <p className="text-sm text-emerald-200/60 mb-2">Dauert es zu lange?</p>
+            <button 
+              onClick={handleManualReset}
+              className="bg-red-500/20 hover:bg-red-500 hover:text-white text-red-200 border border-red-500/50 px-6 py-3 rounded-xl font-bold transition flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Probleme? App neustarten... 
+            </button>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
