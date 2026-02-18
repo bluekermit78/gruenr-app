@@ -111,14 +111,13 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-  // --- NEUE FETCH LOGIK MIT TIMEOUT ---
+// --- FETCH LOGIK MIT "ZOMBIE KILLER" ---
   const fetchData = async () => {
-    // Ein "Timer", der nach 5 Sekunden "Alarm" schlägt (reject)
+    // Timer für 5 Sekunden
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error("Timeout")), 5000)
     );
 
-    // Die eigentliche Datenabfrage
     const dataPromise = Promise.all([
       DataService.fetchUsers(),
       DataService.fetchSuggestions(),
@@ -127,26 +126,32 @@ const App: React.FC = () => {
     ]);
 
     try {
-      // Promise.race nimmt das Ergebnis, das ZUERST fertig ist.
-      // Entweder die Daten kommen schnell (< 5s) -> Success
-      // Oder der Timer läuft ab (5s) -> Error/Catch
+      // Rennen zwischen Daten und Timer
       const result = await Promise.race([dataPromise, timeoutPromise]);
       
-      // Wenn wir hier sind, waren die Daten schneller als der Timer
       const [u, s, r, h] = result as [User[], TreeSuggestion[], DamageReport[], Highlight[]];
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
 
     } catch (e) {
-      console.error("Laden abgebrochen (Timeout oder Fehler):", e);
-      // Im Fehlerfall (oder bei Timeout) beenden wir das Laden trotzdem,
-      // damit der Nutzer nicht vor einem weißen Bildschirm sitzt.
-      showNotification('Verbindung langsam - Daten evtl. unvollständig.', 'error');
+      console.error("Laden abgebrochen (Timeout/Zombie-Session):", e);
+      showNotification('Verbindungsproblem erkannt. Sitzung wurde zurückgesetzt.', 'error');
+      
+      // --- HIER IST DER FIX ---
+      // Wir vermuten eine kaputte "Zombie"-Session.
+      // Wir zwingen Supabase, alles zu vergessen, damit der Login wieder geht.
+      try {
+        await supabase!.auth.signOut(); 
+      } catch (signOutError) {
+        // Falls sogar das Ausloggen fehlschlägt, löschen wir den Speicher hart.
+        localStorage.clear();
+      }
+      setCurrentUser(null);
+      // ------------------------
+
     } finally {
-      // Egal was passiert: Ladebildschirm wegnehmen!
       setIsLoading(false);
     }
   };
-
   useEffect(() => {
     fetchData();
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
