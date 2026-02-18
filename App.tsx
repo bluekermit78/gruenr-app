@@ -118,6 +118,13 @@ const App: React.FC = () => {
       setTimeout(() => reject(new Error("Timeout")), 5000)
     );
 
+// --- FETCH LOGIK MIT "BRUTALEM ZOMBIE KILLER" ---
+  const fetchData = async () => {
+    // Timer für 5 Sekunden
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Timeout")), 5000)
+    );
+
     const dataPromise = Promise.all([
       DataService.fetchUsers(),
       DataService.fetchSuggestions(),
@@ -126,29 +133,27 @@ const App: React.FC = () => {
     ]);
 
     try {
-      // Rennen zwischen Daten und Timer
       const result = await Promise.race([dataPromise, timeoutPromise]);
-      
       const [u, s, r, h] = result as [User[], TreeSuggestion[], DamageReport[], Highlight[]];
       setUsers(u); setSuggestions(s); setReports(r); setHighlights(h);
 
     } catch (e) {
       console.error("Laden abgebrochen (Timeout/Zombie-Session):", e);
-      showNotification('Verbindungsproblem erkannt. Sitzung wurde zurückgesetzt.', 'error');
+      showNotification('Verbindungsproblem. App wurde zurückgesetzt.', 'error');
       
-      // --- HIER IST DER FIX ---
-      // Wir vermuten eine kaputte "Zombie"-Session.
-      // Wir zwingen Supabase, alles zu vergessen, damit der Login wieder geht.
-      try {
-        await supabase!.auth.signOut(); 
-      } catch (signOutError) {
-        // Falls sogar das Ausloggen fehlschlägt, löschen wir den Speicher hart.
-        localStorage.clear();
-      }
+      // --- HIER IST DER FIX FÜR FIREFOX ---
+      // 1. Wir löschen SOFORT den lokalen Speicher. Nicht warten.
+      localStorage.clear();
+      
+      // 2. Wir setzen den User im State auf null.
       setCurrentUser(null);
-      // ------------------------
 
+      // 3. Wir versuchen im Hintergrund, Supabase abzumelden, warten aber NICHT darauf.
+      // Das verhindert, dass die App hängen bleibt, wenn der Server nicht antwortet.
+      supabase?.auth.signOut().catch(err => console.warn("Hintergrund-Logout fehlgeschlagen:", err));
+      
     } finally {
+      // 4. Ladebildschirm SOFORT entfernen, egal was passiert ist.
       setIsLoading(false);
     }
   };
