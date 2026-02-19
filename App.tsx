@@ -52,11 +52,12 @@ const formatDate = (timestamp: number) => {
   return new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute:'2-digit' }).format(new Date(timestamp));
 };
 
-const AppImage: React.FC<{ src?: string, alt?: string, className?: string }> = ({ src, alt, className }) => {
+// --- AKTUALISIERTE BILD-KOMPONENTE FÜR KLICK-EVENTS ---
+const AppImage: React.FC<{ src?: string, alt?: string, className?: string, onClick?: () => void }> = ({ src, alt, className, onClick }) => {
   const [error, setError] = useState(false);
   useEffect(() => { setError(false); }, [src]);
-  if (!src || error) return <div className={`bg-gray-100 flex items-center justify-center text-gray-300 ${className}`}><ImageIcon className="w-8 h-8" /></div>;
-  return <img src={src} alt={alt} className={className} onError={() => setError(true)} />;
+  if (!src || error) return <div className={`bg-gray-100 flex items-center justify-center text-gray-300 ${className} ${onClick ? 'cursor-pointer' : ''}`} onClick={onClick}><ImageIcon className="w-8 h-8" /></div>;
+  return <img src={src} alt={alt} className={`${className} ${onClick ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''}`} onError={() => setError(true)} onClick={onClick} />;
 };
 
 const getTreeIcon = (status: TreeSuggestionStatus, isHighlighted: boolean = false) => {
@@ -101,6 +102,9 @@ const App: React.FC = () => {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  // NEUER STATE FÜR VOLLBILD (LIGHTBOX)
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+
   // Auth State
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -112,34 +116,26 @@ const App: React.FC = () => {
   // Edit Comment State
   const [editingComment, setEditingComment] = useState<{ id: string, text: string, parentId: string, type: 'suggestion' | 'report' } | null>(null);
 
-  // --- NEUER ROBUSTER INITIALISIERUNGS-PROZESS ---
-  
+  // --- INITIALISIERUNGS-PROZESS ---
   const initializeApp = async () => {
     setIsLoading(true);
     
-    // 1. AUTH CHECK: Wir geben Supabase max 2 Sekunden Zeit, den User zu finden.
-    // Wenn es länger dauert, ist die Session wahrscheinlich "Zombie" und wir machen als Gast weiter.
     const authTimeout = new Promise((_, reject) => setTimeout(() => reject("AuthTimeout"), 2000));
     
     try {
-      // Race: Was passiert zuerst? Session gefunden oder 2s vorbei?
       const { data } = await Promise.race([
         supabase!.auth.getSession(),
         authTimeout
       ]) as any;
 
       if (data?.session?.user) {
-        // User gefunden -> Profil laden
         const { data: userProfile } = await supabase!.from('users').select('*').eq('id', data.session.user.id).single();
         if (userProfile) setCurrentUser(userProfile as User);
       }
     } catch (error) {
       console.warn("Auth Check Timeout oder Fehler - Lade als Gast:", error);
-      // Wir loggen NICHT automatisch aus, um keine Endlosschleifen zu erzeugen,
-      // aber wir ignorieren die hängende Session und laden die Daten.
     }
 
-    // 2. DATEN LADEN: Egal ob User oder Gast, jetzt holen wir die Daten.
     try {
       const [u, s, r, h] = await Promise.all([
         DataService.fetchUsers(),
@@ -156,25 +152,16 @@ const App: React.FC = () => {
     }
   };
 
-  // Manueller Reset (Der "Rote Button")
   const handleManualReset = () => {
-    // 1. Zwingend alles lokal löschen
     localStorage.clear();
-    sessionStorage.clear(); // Auch Session Storage sicherheitshalber
-    
-    // 2. Wir warten NICHT auf Supabase. Wir feuern den Logout ab ("Fire and Forget")
-    // Falls der Server hängt, blockiert uns das nicht.
+    sessionStorage.clear();
     supabase?.auth.signOut().catch(err => console.error("SignOut Error (ignored):", err));
-
-    // 3. Seite neu laden
     window.location.reload();
   };
 
-  // Initialer Start
   useEffect(() => {
     initializeApp();
 
-    // Event Listener für Auth Änderungen (Login/Logout zur Laufzeit)
     const { data: authListener } = supabase!.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session) {
         const { data: userProfile } = await supabase!.from('users').select('*').eq('id', session.user.id).single();
@@ -189,13 +176,12 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Timer für den "Notfall-Button"
   useEffect(() => {
     let timer: any;
     if (isLoading) {
       timer = setTimeout(() => {
         setShowResetButton(true);
-      }, 4000); // Button erscheint nach 4 Sekunden
+      }, 4000); 
     }
     return () => clearTimeout(timer);
   }, [isLoading]);
@@ -217,7 +203,6 @@ const App: React.FC = () => {
   const [isCompresing, setIsCompressing] = useState(false);
   const [mapCenter, setMapCenter] = useState<[number, number]>(LIPPSTADT_CENTER);
   
-  // Gemeinsames State für Kommentar-Eingaben
   const [commentText, setCommentText] = useState<{ [id: string]: string }>({});
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -296,7 +281,7 @@ const App: React.FC = () => {
 
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files; if (!files || files.length === 0) return; setIsCompressing(true);
-    // HIER WURDE DAS LIMIT AUF 3 BILDER REDUZIERT
+    // LIMIT AUF 3 BILDER REDUZIERT
     const remaining = 3 - selectedImages.length; const filesToProcess = Array.from(files).slice(0, remaining) as File[];
     for (const file of filesToProcess) {
       const base64 = await new Promise<string>((resolve) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.readAsDataURL(file); });
@@ -305,9 +290,10 @@ const App: React.FC = () => {
     setIsCompressing(false);
   };
 
-const deleteReport = async (id: string) => {
+  // --- AKTUALISIERTE LÖSCH-FUNKTIONEN ---
+  const deleteReport = async (id: string) => {
     if(confirm('Möchtest du diese Meldung wirklich löschen?')) {
-      const success = await DataService.deleteReport(id); 
+      const success = await DataService.deleteReport(id);
       if (success) {
         setReports(prev => prev.filter(r => r.id !== id)); 
         showNotification('Meldung gelöscht.');
@@ -317,7 +303,7 @@ const deleteReport = async (id: string) => {
 
   const deleteHighlight = async (id: string) => {
     if(confirm('Highlight löschen?')) {
-      const success = await DataService.deleteHighlight(id); 
+      const success = await DataService.deleteHighlight(id);
       if (success) {
         setHighlights(prev => prev.filter(h => h.id !== id)); 
         showNotification('Highlight entfernt.');
@@ -361,7 +347,7 @@ const deleteReport = async (id: string) => {
     }
   };
 
-  // --- KOMMENTAR LOGIK (GENERIC) ---
+  // --- KOMMENTAR LOGIK ---
   const addGenericComment = async (parentId: string, type: 'suggestion' | 'report') => {
     const text = commentText[parentId]; if (!text?.trim() || !currentUser) return;
     
@@ -417,26 +403,19 @@ const deleteReport = async (id: string) => {
     showNotification('Kommentar aktualisiert.');
   };
 
-  // --- SAVE ENTRY: MIT SUPABASE STORAGE UPLOAD ---
+  // --- SAVE ENTRY ---
   const handleSaveEntry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser || !newLocation || !formData.title || !formData.description || isCompresing) return;
 
     try {
-        // 1. Bilder hochladen (falls vorhanden)
         const uploadedImageUrls: string[] = [];
         
         if (selectedImages.length > 0) {
             showNotification('Bilder werden hochgeladen...', 'success');
-            
             for (const imgBase64 of selectedImages) {
-                // Upload via DataService
                 const url = await DataService.uploadImage(imgBase64);
-                if (url) {
-                    uploadedImageUrls.push(url);
-                } else {
-                    console.error("Bild konnte nicht hochgeladen werden.");
-                }
+                if (url) uploadedImageUrls.push(url);
             }
         }
 
@@ -445,75 +424,35 @@ const deleteReport = async (id: string) => {
 
         if (isAdding === 'suggestion') {
             const newEntry: TreeSuggestion = {
-                id: newId,
-                lat: newLocation.lat,
-                lng: newLocation.lng,
-                title: formData.title,
-                description: formData.description,
-                images: uploadedImageUrls, 
-                votes: 1,
-                upVotedBy: [currentUser.id],
-                downVotedBy: [],
-                comments: [],
-                authorId: currentUser.id,
-                authorName: currentUser.name,
-                createdAt: timestamp,
-                status: 'Vorschlag'
+                id: newId, lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description,
+                images: uploadedImageUrls, votes: 1, upVotedBy: [currentUser.id], downVotedBy: [], comments: [],
+                authorId: currentUser.id, authorName: currentUser.name, createdAt: timestamp, status: 'Vorschlag'
             };
-            await DataService.addSuggestion(newEntry);
-            setSuggestions([newEntry, ...suggestions]);
-            setViewMode('list');
+            await DataService.addSuggestion(newEntry); setSuggestions([newEntry, ...suggestions]); setViewMode('list');
             showNotification('Vorschlag erfolgreich erstellt!');
-
         } else if (isAdding === 'damage') {
             const newEntry: DamageReport = {
-                id: newId,
-                lat: newLocation.lat,
-                lng: newLocation.lng,
-                title: formData.title,
-                description: formData.description,
-                images: uploadedImageUrls,
-                status: 'Gemeldet',
-                authorId: currentUser.id,
-                authorName: currentUser.name,
-                createdAt: timestamp,
-                comments: []
+                id: newId, lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description,
+                images: uploadedImageUrls, status: 'Gemeldet', authorId: currentUser.id, authorName: currentUser.name, createdAt: timestamp, comments: []
             };
-            await DataService.addReport(newEntry);
-            setReports([newEntry, ...reports]);
-            setViewMode('reports');
+            await DataService.addReport(newEntry); setReports([newEntry, ...reports]); setViewMode('reports');
             showNotification('Schaden gemeldet. Danke!');
-
         } else if (isAdding === 'highlight') {
             const newEntry: Highlight = {
-                id: newId,
-                lat: newLocation.lat,
-                lng: newLocation.lng,
-                title: formData.title,
-                description: formData.description,
-                images: uploadedImageUrls,
-                authorId: currentUser.id,
-                createdAt: timestamp
+                id: newId, lat: newLocation.lat, lng: newLocation.lng, title: formData.title, description: formData.description,
+                images: uploadedImageUrls, authorId: currentUser.id, createdAt: timestamp
             };
-            await DataService.addHighlight(newEntry);
-            setHighlights([newEntry, ...highlights]);
-            setViewMode('highlights');
+            await DataService.addHighlight(newEntry); setHighlights([newEntry, ...highlights]); setViewMode('highlights');
             showNotification('Highlight erstellt!');
         }
 
-        // Reset
-        setIsAdding(null);
-        setNewLocation(null);
-        setFormData({ title: '', description: '' });
-        setSelectedImages([]);
-
+        setIsAdding(null); setNewLocation(null); setFormData({ title: '', description: '' }); setSelectedImages([]);
     } catch (error) {
         console.error("Fehler beim Speichern:", error);
         showNotification('Fehler beim Speichern des Eintrags.', 'error');
     }
   };
 
-  // Helper zum Rendern der Kommentare
   const renderCommentsSection = (comments: Comment[], parentId: string, type: 'suggestion' | 'report') => {
     return (
       <div className="mt-4 border-t border-gray-100 pt-4">
@@ -569,14 +508,11 @@ const deleteReport = async (id: string) => {
   const isModOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
   const isAdmin = currentUser?.role === 'admin';
 
-  // LADEBILDSCHIRM MIT NOTFALL-RESET-BUTTON
   if (isLoading) {
     return (
       <div className="h-screen w-full flex flex-col items-center justify-center bg-emerald-900 text-white p-4 relative">
         <Loader2 className="w-12 h-12 animate-spin text-emerald-400 mb-4" />
         <p className="font-bold text-lg animate-pulse mb-8">grünr wird geladen...</p>
-        
-        {/* Der Notfall-Button für Firefox & Hänger */}
         {showResetButton && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col items-center gap-2">
             <p className="text-sm text-emerald-200/60 mb-2">Dauert es zu lange?</p>
@@ -602,7 +538,6 @@ const deleteReport = async (id: string) => {
         </div>
       )}
       
-      {/* AUTH MODAL */}
       {showAuthModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-300">
@@ -645,7 +580,6 @@ const deleteReport = async (id: string) => {
               
               {authMode === 'register' && <p className="text-xs text-center text-gray-400 mt-4">Wir senden dir einen Bestätigungslink per E-Mail.</p>}
 
-              {/* NEUER BEREICH: IMPRESSUM & DATENSCHUTZ */}
               <div className="mt-6 flex items-center justify-center gap-4 text-xs text-gray-400">
                 <a href="https://lippstaedter-gruen.de/impressum" target="_blank" rel="noopener noreferrer" className="hover:text-emerald-800 hover:underline transition">Impressum</a>
                 <span className="opacity-50">•</span>
@@ -661,6 +595,7 @@ const deleteReport = async (id: string) => {
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setViewMode('map')}><div className="bg-white/10 p-1.5 rounded-lg"><Leaf className="w-6 h-6 text-emerald-400" /></div><div className="flex flex-col"><h1 className="text-xl font-black brand-text leading-none">grünr</h1><div className="flex items-center gap-1.5"><span className="text-[8px] font-bold tracking-widest opacity-60">Lippstädter Grün e.V.</span><div className="flex items-center gap-0.5 opacity-40 hover:opacity-100 transition cursor-help" title={syncStatus === 'syncing' ? 'Synchronisiere...' : 'Daten in Cloud gespeichert'}>{syncStatus === 'syncing' ? <Loader2 className="w-2 h-2 animate-spin" /> : <CloudCheck className="w-2 h-2" />}</div></div></div></div>
         <div className="flex gap-2 items-center"><button onClick={() => setViewMode('map')} className={`p-2 rounded-xl transition ${viewMode === 'map' ? 'bg-white/20' : 'hover:bg-white/10'}`}><MapIcon className="w-5 h-5" /></button><button onClick={() => setViewMode('list')} className={`p-2 rounded-xl transition ${viewMode === 'list' ? 'bg-white/20' : 'hover:bg-white/10'}`}><ListIcon className="w-5 h-5" /></button><button onClick={() => setViewMode('highlights')} className={`p-2 rounded-xl transition ${viewMode === 'highlights' ? 'bg-white/20' : 'hover:bg-white/10'}`}><Star className="w-5 h-5" /></button><button onClick={() => setViewMode('reports')} className={`p-2 rounded-xl transition ${viewMode === 'reports' ? 'bg-white/20' : 'hover:bg-white/10'}`}><AlertTriangle className="w-5 h-5" /></button><div className="w-px h-6 bg-white/20 mx-1" />{currentUser ? (<button onClick={() => setViewMode('profile')} className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition ${viewMode === 'profile' ? 'bg-white/20' : 'hover:bg-white/10'}`}><div className="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-900 font-bold text-xs uppercase">{currentUser.name.charAt(0)}</div><span className="text-sm font-semibold hidden md:block">{currentUser.name}</span></button>) : (<button onClick={() => setShowAuthModal(true)} className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-emerald-400"><LogIn className="w-4 h-4" /> Login</button>)}</div>
       </header>
+      
       <main className="flex-1 relative overflow-hidden bg-gray-100">
         {viewMode === 'map' && (
           <div className="w-full h-full relative z-0">
@@ -702,20 +637,43 @@ const deleteReport = async (id: string) => {
             )}
           </div>
         )}
-        {viewMode === 'highlights' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-12 pb-32"><h2 className="text-2xl md:text-4xl font-black text-gray-900 brand-text border-b pb-4">Lippstädter Highlights</h2><div className="grid gap-12">{highlights.map(h => (<div key={h.id} className="bg-white rounded-[2.5rem] shadow-sm border border-amber-50 overflow-hidden flex flex-col md:flex-row gap-8 p-6 md:p-8 relative group">{isModOrAdmin && (<button onClick={() => deleteHighlight(h.id)} className="absolute top-6 right-6 p-2 bg-white/80 rounded-full hover:bg-red-100 hover:text-red-600 transition opacity-0 group-hover:opacity-100"><Trash2 className="w-5 h-5"/></button>)}<div className="w-full md:w-1/2 flex flex-col gap-2">{h.images && h.images.length > 0 ? (<><AppImage src={h.images[0]} className="w-full h-64 object-cover rounded-2xl" />{h.images.length > 1 && (<div className="grid grid-cols-2 gap-2">{h.images.slice(1).map((img, i) => (<AppImage key={i} src={img} className="w-full h-32 object-cover rounded-2xl" />))}</div>)}</>) : (<div className="w-full h-64 bg-amber-50 flex items-center justify-center text-amber-200"><Star className="w-20 h-20" /></div>)}</div><div className="w-full md:w-1/2 flex flex-col justify-between"><div><h3 className="text-2xl font-bold text-gray-900 mb-4">{h.title}</h3><p className="text-gray-600 leading-relaxed">{h.description}</p></div><div className="flex justify-between items-end mt-8"><span className="text-xs text-gray-400 font-medium">Erstellt am {formatDate(h.createdAt)}</span><button onClick={() => navigateToMap(h.id, h.lat, h.lng)} className="flex items-center gap-2 text-amber-600 font-bold hover:underline">Karte <ChevronRight className="w-4 h-4" /></button></div></div></div>))}</div></div>)}
-        {viewMode === 'reports' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-red-900 brand-text border-b pb-4">Schadensmeldungen</h2>{reports.map(r => (<div key={r.id} className="bg-white rounded-3xl shadow-sm border border-red-100 p-6 space-y-4"><div className="flex justify-between items-start"><div className="flex items-center gap-3"><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(r.status)}`}>{r.status}</span><h3 className="text-xl font-bold">{r.title}</h3></div><div className="flex items-center gap-2"><button onClick={() => navigateToMap(r.id, r.lat, r.lng)} className="text-red-600 font-bold text-sm hover:underline">Karte</button>{isModOrAdmin && (<button onClick={() => deleteReport(r.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>)}</div></div><p className="text-gray-600">{r.description}</p>{r.images && r.images.length > 0 && (<div className="grid grid-cols-2 gap-4 mt-3">{r.images.map((img, i) => (<AppImage key={i} src={img} className="w-full h-32 object-cover rounded-2xl" />))}</div>)}
         
-        {/* Render Comments for Report */}
+        {viewMode === 'highlights' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-12 pb-32"><h2 className="text-2xl md:text-4xl font-black text-gray-900 brand-text border-b pb-4">Lippstädter Highlights</h2><div className="grid gap-12">{highlights.map(h => (<div key={h.id} className="bg-white rounded-[2.5rem] shadow-sm border border-amber-50 overflow-hidden flex flex-col md:flex-row gap-8 p-6 md:p-8 relative group">{isModOrAdmin && (<button onClick={() => deleteHighlight(h.id)} className="absolute top-6 right-6 p-2 bg-white/80 rounded-full hover:bg-red-100 hover:text-red-600 transition opacity-0 group-hover:opacity-100 z-10"><Trash2 className="w-5 h-5"/></button>)}<div className="w-full md:w-1/2 flex flex-col gap-2">{h.images && h.images.length > 0 ? (<><AppImage src={h.images[0]} onClick={() => setFullscreenImage(h.images![0])} className="w-full h-64 object-cover rounded-2xl shadow-sm" />{h.images.length > 1 && (<div className="grid grid-cols-2 gap-2">{h.images.slice(1).map((img, i) => (<AppImage key={i} src={img} onClick={() => setFullscreenImage(img)} className="w-full h-32 object-cover rounded-2xl shadow-sm" />))}</div>)}</>) : (<div className="w-full h-64 bg-amber-50 flex items-center justify-center text-amber-200 rounded-2xl"><Star className="w-20 h-20" /></div>)}</div><div className="w-full md:w-1/2 flex flex-col justify-between"><div><h3 className="text-2xl font-bold text-gray-900 mb-4">{h.title}</h3><p className="text-gray-600 leading-relaxed">{h.description}</p></div><div className="flex justify-between items-end mt-8"><span className="text-xs text-gray-400 font-medium">Erstellt am {formatDate(h.createdAt)}</span><button onClick={() => navigateToMap(h.id, h.lat, h.lng)} className="flex items-center gap-2 text-amber-600 font-bold hover:underline">Karte <ChevronRight className="w-4 h-4" /></button></div></div></div>))}</div></div>)}
+        
+        {viewMode === 'reports' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-red-900 brand-text border-b pb-4">Schadensmeldungen</h2>{reports.map(r => (<div key={r.id} className="bg-white rounded-3xl shadow-sm border border-red-100 p-6 space-y-4"><div className="flex justify-between items-start"><div className="flex items-center gap-3"><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(r.status)}`}>{r.status}</span><h3 className="text-xl font-bold">{r.title}</h3></div><div className="flex items-center gap-2"><button onClick={() => navigateToMap(r.id, r.lat, r.lng)} className="text-red-600 font-bold text-sm hover:underline">Karte</button>{isModOrAdmin && (<button onClick={() => deleteReport(r.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4"/></button>)}</div></div><p className="text-gray-600">{r.description}</p>{r.images && r.images.length > 0 && (<div className="grid grid-cols-2 gap-4 mt-3">{r.images.map((img, i) => (<AppImage key={i} src={img} onClick={() => setFullscreenImage(img)} className="w-full h-32 object-cover rounded-2xl shadow-sm" />))}</div>)}
+        
         {renderCommentsSection(r.comments, r.id, 'report')}
 
         {isModOrAdmin && (<div className="bg-gray-50 p-4 rounded-xl mt-4 border border-gray-100"><h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Moderation</h4><div className="flex flex-wrap gap-2 mb-4"><button onClick={() => updateReportStatus(r.id, 'Gemeldet')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Gemeldet' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-200'}`}>Offen</button><button onClick={() => updateReportStatus(r.id, 'In Arbeit')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'In Arbeit' ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-200'}`}>In Arbeit</button><button onClick={() => updateReportStatus(r.id, 'Erledigt')} className={`px-3 py-1 rounded-lg text-xs font-bold border ${r.status === 'Erledigt' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200'}`}>Erledigt</button></div></div>)}<div className="text-xs text-gray-400 mt-2">Gemeldet von {r.authorName} am {formatDate(r.createdAt)}</div></div>))}</div>)}
-        {viewMode === 'list' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-emerald-900 brand-text border-b pb-4">Community Vorschläge</h2>{suggestions.map(s => (<div key={s.id} className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-6 flex flex-col md:flex-row gap-6 relative group">{isModOrAdmin && (<button onClick={() => deleteSuggestion(s.id)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 transition"><Trash2 className="w-5 h-5"/></button>)}<div className="flex flex-col items-center justify-center bg-emerald-50 rounded-2xl p-4 min-w-[80px] h-fit"><button onClick={() => handleVote(s.id, 'up')} className={`p-2 rounded-full ${s.upVotedBy.includes(currentUser?.id || '') ? 'text-emerald-700 bg-emerald-200' : 'text-gray-400'}`}><ThumbsUp className="w-6 h-6" /></button><span className="font-bold text-emerald-900 text-lg my-1">{s.votes}</span><button onClick={() => handleVote(s.id, 'down')} className={`p-2 rounded-full ${s.downVotedBy.includes(currentUser?.id || '') ? 'text-red-700 bg-red-100' : 'text-gray-400'}`}><ThumbsDown className="w-6 h-6" /></button></div><div className="flex-1"><div className="flex justify-between pr-8"><div><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(s.status)}`}>{s.status}</span><h3 className="text-xl font-bold mt-2">{s.title}</h3></div><button onClick={() => navigateToMap(s.id, s.lat, s.lng)} className="text-emerald-700 font-bold hover:underline self-start">Karte</button></div><p className="text-gray-600 mt-2">{s.description}</p>{s.images && s.images.length > 0 && (<div className="flex gap-2 mt-3 overflow-x-auto pb-2">{s.images.map((img, i) => (<AppImage key={i} src={img} className="h-20 w-20 object-cover rounded-lg flex-shrink-0" />))}</div>)}{isModOrAdmin && (<div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><div className="text-xs font-bold text-gray-500 uppercase mb-2">Status ändern</div><div className="flex flex-wrap gap-2">{['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (<button key={st} onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{st}</button>))}</div></div>)}
         
-        {/* Render Comments for Suggestion */}
+        {viewMode === 'list' && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-6 pb-40"><h2 className="text-2xl md:text-3xl font-bold text-emerald-900 brand-text border-b pb-4">Community Vorschläge</h2>{suggestions.map(s => (<div key={s.id} className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-6 flex flex-col md:flex-row gap-6 relative group">{isModOrAdmin && (<button onClick={() => deleteSuggestion(s.id)} className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 transition"><Trash2 className="w-5 h-5"/></button>)}<div className="flex flex-col items-center justify-center bg-emerald-50 rounded-2xl p-4 min-w-[80px] h-fit"><button onClick={() => handleVote(s.id, 'up')} className={`p-2 rounded-full ${s.upVotedBy.includes(currentUser?.id || '') ? 'text-emerald-700 bg-emerald-200' : 'text-gray-400'}`}><ThumbsUp className="w-6 h-6" /></button><span className="font-bold text-emerald-900 text-lg my-1">{s.votes}</span><button onClick={() => handleVote(s.id, 'down')} className={`p-2 rounded-full ${s.downVotedBy.includes(currentUser?.id || '') ? 'text-red-700 bg-red-100' : 'text-gray-400'}`}><ThumbsDown className="w-6 h-6" /></button></div><div className="flex-1"><div className="flex justify-between pr-8"><div><span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${getStatusStyle(s.status)}`}>{s.status}</span><h3 className="text-xl font-bold mt-2">{s.title}</h3></div><button onClick={() => navigateToMap(s.id, s.lat, s.lng)} className="text-emerald-700 font-bold hover:underline self-start">Karte</button></div><p className="text-gray-600 mt-2">{s.description}</p>{s.images && s.images.length > 0 && (<div className="flex gap-2 mt-3 overflow-x-auto pb-2">{s.images.map((img, i) => (<AppImage key={i} src={img} onClick={() => setFullscreenImage(img)} className="h-20 w-20 object-cover rounded-lg flex-shrink-0 shadow-sm" />))}</div>)}{isModOrAdmin && (<div className="mt-4 p-3 bg-gray-50 rounded-xl border border-gray-100"><div className="text-xs font-bold text-gray-500 uppercase mb-2">Status ändern</div><div className="flex flex-wrap gap-2">{['Vorschlag', 'Akzeptiert', 'In Arbeit', 'Gepflanzt', 'Abgelehnt'].map((st) => (<button key={st} onClick={() => updateSuggestionStatus(s.id, st as TreeSuggestionStatus)} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${s.status === st ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{st}</button>))}</div></div>)}
+        
         {renderCommentsSection(s.comments, s.id, 'suggestion')}
         
         </div></div>))}</div>)}
+        
         {viewMode === 'profile' && currentUser && (<div className="h-full overflow-y-auto p-4 md:p-8 max-w-5xl mx-auto space-y-8 pb-32"><div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-emerald-50"><div className="h-24 bg-emerald-900 flex items-center px-8 text-white relative overflow-hidden"><div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div><h2 className="text-xl font-bold brand-text relative z-10">Dein Profil</h2></div><div className="p-8"><div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6"><div className="flex items-center gap-6"><div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-800 text-4xl font-black shadow-inner">{currentUser.name.charAt(0)}</div><div><h3 className="text-3xl font-bold text-gray-900">{currentUser.name}</h3><div className="flex items-center gap-2 mt-1"><span className={`px-2 py-0.5 rounded-md text-xs font-bold uppercase tracking-widest ${currentUser.role === 'admin' ? 'bg-red-100 text-red-700' : currentUser.role === 'moderator' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{currentUser.role}</span><span className="text-gray-400 text-sm">{currentUser.email}</span></div>{currentUser.organization && <p className="text-sm text-emerald-700 font-medium mt-1"><Building2 className="w-3 h-3 inline mr-1"/> {currentUser.organization}</p>}</div></div><button onClick={handleLogout} className="text-red-600 font-bold px-6 py-3 rounded-2xl border border-red-100 shadow-sm hover:bg-red-50 flex items-center gap-2"><LogOut className="w-4 h-4" /> Abmelden</button></div>{isAdmin && (<div className="mt-12"><h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2"><Users className="w-5 h-5 text-emerald-600"/> Benutzerverwaltung</h3><div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm"><table className="w-full text-left"><thead className="bg-gray-50 text-gray-500 text-xs uppercase font-bold"><tr><th className="p-4">Name</th><th className="p-4">E-Mail</th><th className="p-4">Rolle</th><th className="p-4">Org.</th><th className="p-4">Aktion</th></tr></thead><tbody className="divide-y divide-gray-100">{users.map(u => (<tr key={u.id} className="hover:bg-gray-50 transition"><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" value={editUserForm.name} onChange={e => setEditUserForm({...editUserForm, name: e.target.value})} />) : (<div className="font-bold text-gray-900">{u.name}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" value={editUserForm.email} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} />) : (<div className="text-gray-400 text-xs">{u.email}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<select className="border p-1 rounded" value={editUserForm.role} onChange={e => setEditUserForm({...editUserForm, role: e.target.value as UserRole})}><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select>) : (<span className={`text-xs font-bold uppercase px-2 py-1 rounded-lg ${u.role === 'admin' ? 'bg-red-50 text-red-600' : u.role === 'moderator' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>)}</td><td className="p-4">{editingUserId === u.id ? (<input className="border p-1 rounded w-full" placeholder="-" value={editUserForm.organization} onChange={e => setEditUserForm({...editUserForm, organization: e.target.value})} />) : (<div className="text-gray-600 text-sm">{u.organization || '-'}</div>)}</td><td className="p-4">{editingUserId === u.id ? (<div className="flex gap-2"><button onClick={handleSaveUserEdit} className="text-emerald-600 p-1"><CheckCircle2 className="w-5 h-5"/></button><button onClick={() => setEditingUserId(null)} className="text-red-500 p-1"><X className="w-5 h-5"/></button></div>) : (<div className="flex gap-3"><button onClick={() => handleEditUser(u)} className="text-gray-400 hover:text-emerald-600" title="Bearbeiten"><Edit2 className="w-4 h-4"/></button><button onClick={() => handleDeleteUser(u.id)} className="text-gray-400 hover:text-red-600" title="Benutzer löschen"><Trash2 className="w-4 h-4"/></button></div>)}</td></tr>))}</tbody></table></div></div>)}</div></div></div>)}
+        
+        {/* --- BILD VOLLBILD ANSICHT (LIGHTBOX) --- */}
+        {fullscreenImage && (
+          <div 
+            className="fixed inset-0 z-[10000] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+            onClick={() => setFullscreenImage(null)}
+          >
+            <button 
+              className="absolute top-4 right-4 md:top-8 md:right-8 bg-white/10 hover:bg-white/30 text-white rounded-full p-2 transition-all"
+              onClick={() => setFullscreenImage(null)}
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <img 
+              src={fullscreenImage} 
+              className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl animate-in fade-in zoom-in-95 duration-200" 
+              alt="Vollbild" 
+              onClick={(e) => e.stopPropagation()} 
+            />
+          </div>
+        )}
       </main>
     </div>
   );
