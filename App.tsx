@@ -344,8 +344,11 @@ const App: React.FC = () => {
 
   const deleteSuggestion = async (id: string) => {
     if (confirm('Diesen Vorschlag wirklich löschen?')) {
-      await DataService.deleteSuggestion(id); 
-      setSuggestions(prev => prev.filter(s => s.id !== id)); showNotification('Vorschlag gelöscht.');
+      const success = await DataService.deleteSuggestion(id);
+      if (success) {
+        setSuggestions(prev => prev.filter(s => s.id !== id));
+        showNotification('Vorschlag gelöscht.');
+      }
     }
   };
 
