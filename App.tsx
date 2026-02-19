@@ -305,15 +305,23 @@ const App: React.FC = () => {
     setIsCompressing(false);
   };
 
-  const deleteReport = async (id: string) => {
+const deleteReport = async (id: string) => {
     if(confirm('Möchtest du diese Meldung wirklich löschen?')) {
-      await DataService.deleteReport(id); setReports(prev => prev.filter(r => r.id !== id)); showNotification('Meldung gelöscht.');
+      const success = await DataService.deleteReport(id); 
+      if (success) {
+        setReports(prev => prev.filter(r => r.id !== id)); 
+        showNotification('Meldung gelöscht.');
+      }
     }
   };
 
   const deleteHighlight = async (id: string) => {
     if(confirm('Highlight löschen?')) {
-      await DataService.deleteHighlight(id); setHighlights(prev => prev.filter(h => h.id !== id)); showNotification('Highlight entfernt.');
+      const success = await DataService.deleteHighlight(id); 
+      if (success) {
+        setHighlights(prev => prev.filter(h => h.id !== id)); 
+        showNotification('Highlight entfernt.');
+      }
     }
   };
 
